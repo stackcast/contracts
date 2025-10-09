@@ -1,0 +1,320 @@
+;; Conditional Tokens Framework (CTF)
+;; Core contract for managing outcome tokens in prediction markets
+;; Similar to Gnosis ConditionalTokens.sol
+
+;; Error codes
+(define-constant ERR-NOT-AUTHORIZED (err u100))
+(define-constant ERR-INVALID-CONDITION (err u101))
+(define-constant ERR-CONDITION-ALREADY-RESOLVED (err u102))
+(define-constant ERR-CONDITION-NOT-RESOLVED (err u103))
+(define-constant ERR-INSUFFICIENT-BALANCE (err u104))
+(define-constant ERR-INVALID-PAYOUT (err u105))
+(define-constant ERR-TRANSFER-FAILED (err u106))
+(define-constant ERR-INVALID-AMOUNT (err u107))
+
+;; Data structures
+
+;; Condition: represents a prediction market
+(define-map conditions
+  { condition-id: (buff 32) }
+  {
+    oracle: principal,
+    question-id: (buff 32),
+    outcome-slot-count: uint,
+    resolved: bool,
+    payout-numerators: (list 2 uint), ;; [YES_PAYOUT, NO_PAYOUT]
+    payout-denominator: uint
+  }
+)
+
+;; Position balances: maps (user, position-id) -> balance
+;; position-id encodes: collateral + condition-id + outcome-index
+(define-map position-balances
+  { owner: principal, position-id: (buff 32) }
+  { balance: uint }
+)
+
+;; Approval for all: allows operator to manage all positions
+(define-map approval-for-all
+  { owner: principal, operator: principal }
+  { approved: bool }
+)
+
+;; Collateral token - using real sBTC (Bitcoin-backed token on Stacks)
+;; In simnet/devnet: SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token (auto-funded)
+;; In testnet: ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.sbtc-token
+;; In mainnet: SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+(define-constant SBTC-TOKEN 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token)
+
+;; Helper: generate position ID from condition and outcome index
+(define-private (get-position-id (condition-id (buff 32)) (outcome-index uint))
+  (sha256 (concat condition-id (unwrap-panic (to-consensus-buff? outcome-index))))
+)
+
+;; Helper: get balance
+(define-read-only (balance-of (owner principal) (position-id (buff 32)))
+  (default-to u0 (get balance (map-get? position-balances { owner: owner, position-id: position-id })))
+)
+
+;; Helper: set balance
+(define-private (set-balance (owner principal) (position-id (buff 32)) (amount uint))
+  (begin
+    (map-set position-balances
+      { owner: owner, position-id: position-id }
+      { balance: amount }
+    )
+    true
+  )
+)
+
+;; Prepare a new condition
+(define-public (prepare-condition (oracle principal) (question-id (buff 32)) (outcome-slot-count uint))
+  (let
+    (
+      (condition-id (sha256 (concat (concat (unwrap-panic (to-consensus-buff? oracle)) question-id)
+                                    (unwrap-panic (to-consensus-buff? outcome-slot-count)))))
+    )
+    (asserts! (is-none (map-get? conditions { condition-id: condition-id })) ERR-INVALID-CONDITION)
+    (ok (map-set conditions
+      { condition-id: condition-id }
+      {
+        oracle: oracle,
+        question-id: question-id,
+        outcome-slot-count: outcome-slot-count,
+        resolved: false,
+        payout-numerators: (list u0 u0),
+        payout-denominator: u1
+      }
+    ))
+  )
+)
+
+;; Split collateral into outcome tokens (e.g., 100 USDA -> 100 YES + 100 NO)
+(define-public (split-position
+  (collateral-amount uint)
+  (condition-id (buff 32))
+)
+  (let
+    (
+      (condition (unwrap! (map-get? conditions { condition-id: condition-id }) ERR-INVALID-CONDITION))
+      (yes-position-id (get-position-id condition-id u0))
+      (no-position-id (get-position-id condition-id u1))
+      (current-yes-balance (balance-of tx-sender yes-position-id))
+      (current-no-balance (balance-of tx-sender no-position-id))
+    )
+    (asserts! (> collateral-amount u0) ERR-INVALID-AMOUNT)
+    (asserts! (is-eq (get resolved condition) false) ERR-CONDITION-ALREADY-RESOLVED)
+
+    ;; Transfer sBTC from user to contract (locks collateral)
+    (try! (contract-call? SBTC-TOKEN transfer
+      collateral-amount
+      tx-sender
+      (as-contract tx-sender)
+      none
+    ))
+
+    ;; Mint outcome tokens (YES + NO)
+    (set-balance tx-sender yes-position-id (+ current-yes-balance collateral-amount))
+    (set-balance tx-sender no-position-id (+ current-no-balance collateral-amount))
+
+    (print {
+      event: "position-split",
+      user: tx-sender,
+      condition-id: condition-id,
+      amount: collateral-amount
+    })
+    (ok true)
+  )
+)
+
+;; Merge outcome tokens back into collateral (e.g., 100 YES + 100 NO -> 100 USDA)
+(define-public (merge-positions
+  (collateral-amount uint)
+  (condition-id (buff 32))
+)
+  (let
+    (
+      (condition (unwrap! (map-get? conditions { condition-id: condition-id }) ERR-INVALID-CONDITION))
+      (yes-position-id (get-position-id condition-id u0))
+      (no-position-id (get-position-id condition-id u1))
+      (current-yes-balance (balance-of tx-sender yes-position-id))
+      (current-no-balance (balance-of tx-sender no-position-id))
+    )
+    (asserts! (> collateral-amount u0) ERR-INVALID-AMOUNT)
+    (asserts! (>= current-yes-balance collateral-amount) ERR-INSUFFICIENT-BALANCE)
+    (asserts! (>= current-no-balance collateral-amount) ERR-INSUFFICIENT-BALANCE)
+
+    ;; Burn outcome tokens
+    (set-balance tx-sender yes-position-id (- current-yes-balance collateral-amount))
+    (set-balance tx-sender no-position-id (- current-no-balance collateral-amount))
+
+    ;; Return sBTC collateral to user
+    (try! (as-contract (contract-call? SBTC-TOKEN transfer
+      collateral-amount
+      tx-sender
+      tx-sender
+      none
+    )))
+
+    (print {
+      event: "positions-merged",
+      user: tx-sender,
+      condition-id: condition-id,
+      amount: collateral-amount
+    })
+    (ok true)
+  )
+)
+
+;; Transfer position tokens
+(define-public (safe-transfer-from
+  (from principal)
+  (to principal)
+  (position-id (buff 32))
+  (amount uint)
+)
+  (let
+    (
+      (sender-balance (balance-of from position-id))
+      (receiver-balance (balance-of to position-id))
+      (is-approved (default-to false (get approved (map-get? approval-for-all { owner: from, operator: tx-sender }))))
+    )
+    (asserts! (or (is-eq tx-sender from) is-approved) ERR-NOT-AUTHORIZED)
+    (asserts! (>= sender-balance amount) ERR-INSUFFICIENT-BALANCE)
+
+    ;; Update balances
+    (set-balance from position-id (- sender-balance amount))
+    (set-balance to position-id (+ receiver-balance amount))
+
+    (print {
+      event: "transfer",
+      from: from,
+      to: to,
+      position-id: position-id,
+      amount: amount
+    })
+    (ok true)
+  )
+)
+
+;; Batch transfer (used by exchange)
+(define-public (safe-batch-transfer-from
+  (from principal)
+  (to principal)
+  (position-ids (list 10 (buff 32)))
+  (amounts (list 10 uint))
+)
+  (ok (map safe-transfer-from-helper
+    (list
+      { from: from, to: to, position-id: (unwrap-panic (element-at position-ids u0)), amount: (unwrap-panic (element-at amounts u0)) }
+    )
+  ))
+)
+
+(define-private (safe-transfer-from-helper (params { from: principal, to: principal, position-id: (buff 32), amount: uint }))
+  (safe-transfer-from (get from params) (get to params) (get position-id params) (get amount params))
+)
+
+;; Set approval for operator
+(define-public (set-approval-for-all (operator principal) (approved bool))
+  (ok (map-set approval-for-all
+    { owner: tx-sender, operator: operator }
+    { approved: approved }
+  ))
+)
+
+;; Report payout from oracle (only callable by authorized oracle)
+(define-public (report-payout (condition-id (buff 32)) (payout-numerators (list 2 uint)))
+  (let
+    (
+      (condition (unwrap! (map-get? conditions { condition-id: condition-id }) ERR-INVALID-CONDITION))
+    )
+    (asserts! (is-eq tx-sender (get oracle condition)) ERR-NOT-AUTHORIZED)
+    (asserts! (is-eq (get resolved condition) false) ERR-CONDITION-ALREADY-RESOLVED)
+
+    ;; Validate payouts (must sum to denominator)
+    (let
+      (
+        (payout-sum (+ (unwrap-panic (element-at payout-numerators u0))
+                      (unwrap-panic (element-at payout-numerators u1))))
+      )
+      (asserts! (is-eq payout-sum u1) ERR-INVALID-PAYOUT)
+    )
+
+    (ok (map-set conditions
+      { condition-id: condition-id }
+      (merge condition {
+        resolved: true,
+        payout-numerators: payout-numerators,
+        payout-denominator: u1
+      })
+    ))
+  )
+)
+
+;; Redeem positions after resolution
+(define-public (redeem-positions
+  (condition-id (buff 32))
+  (outcome-index uint)
+)
+  (let
+    (
+      (condition (unwrap! (map-get? conditions { condition-id: condition-id }) ERR-INVALID-CONDITION))
+      (position-id (get-position-id condition-id outcome-index))
+      (balance (balance-of tx-sender position-id))
+      (payout-numerator (unwrap-panic (element-at (get payout-numerators condition) outcome-index)))
+      (payout-denominator (get payout-denominator condition))
+      (payout-amount (/ (* balance payout-numerator) payout-denominator))
+    )
+    (asserts! (get resolved condition) ERR-CONDITION-NOT-RESOLVED)
+    (asserts! (> balance u0) ERR-INSUFFICIENT-BALANCE)
+
+    ;; Burn position tokens
+    (set-balance tx-sender position-id u0)
+
+    ;; Transfer sBTC payout to winner
+    (if (> payout-amount u0)
+      (try! (as-contract (contract-call? SBTC-TOKEN transfer
+        payout-amount
+        tx-sender
+        tx-sender
+        none
+      )))
+      true
+    )
+
+    (print {
+      event: "positions-redeemed",
+      user: tx-sender,
+      condition-id: condition-id,
+      outcome-index: outcome-index,
+      payout: payout-amount
+    })
+    (ok payout-amount)
+  )
+)
+
+;; Read-only functions
+
+(define-read-only (get-condition (condition-id (buff 32)))
+  (map-get? conditions { condition-id: condition-id })
+)
+
+(define-read-only (get-outcome-slot-count (condition-id (buff 32)))
+  (match (map-get? conditions { condition-id: condition-id })
+    condition (some (get outcome-slot-count condition))
+    none
+  )
+)
+
+(define-read-only (is-approved-for-all (owner principal) (operator principal))
+  (default-to false (get approved (map-get? approval-for-all { owner: owner, operator: operator })))
+)
+
+(define-read-only (get-collection-id (condition-id (buff 32)))
+  (sha256 condition-id)
+)
+
+(define-read-only (get-position-id-readonly (condition-id (buff 32)) (outcome-index uint))
+  (get-position-id condition-id outcome-index)
+)

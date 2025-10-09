@@ -1,0 +1,45 @@
+[project]
+name = 'stackcast-contracts'
+description = ''
+authors = []
+telemetry = true
+cache_dir = './.cache'
+
+[[project.requirements]]
+contract_id = 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token'
+[contracts.conditional-tokens]
+path = 'contracts/conditional-tokens.clar'
+clarity_version = 3
+epoch = 'latest'
+
+[contracts.ctf-exchange]
+path = 'contracts/ctf-exchange.clar'
+clarity_version = 3
+epoch = 'latest'
+
+[contracts.optimistic-oracle]
+path = 'contracts/optimistic-oracle.clar'
+clarity_version = 3
+epoch = 'latest'
+
+[contracts.oracle-adapter]
+path = 'contracts/oracle-adapter.clar'
+clarity_version = 3
+epoch = 'latest'
+
+[contracts.sip-010-trait]
+path = 'contracts/sip-010-trait.clar'
+clarity_version = 3
+epoch = 'latest'
+[repl.analysis]
+passes = ['check_checker']
+
+[repl.analysis.check_checker]
+strict = false
+trusted_sender = false
+trusted_caller = false
+callee_filter = false
+
+[repl.remote_data]
+enabled = false
+api_url = 'https://api.hiro.so'

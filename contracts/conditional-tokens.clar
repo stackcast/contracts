@@ -69,23 +69,29 @@
 
 ;; Prepare a new condition
 (define-public (prepare-condition (oracle principal) (question-id (buff 32)) (outcome-slot-count uint))
-  (let
-    (
-      (condition-id (sha256 (concat (concat (unwrap-panic (to-consensus-buff? oracle)) question-id)
-                                    (unwrap-panic (to-consensus-buff? outcome-slot-count)))))
+  (begin
+    ;; Validate inputs before using them
+    (asserts! (is-eq (len question-id) u32) ERR-INVALID-CONDITION)
+    (asserts! (and (> outcome-slot-count u0) (<= outcome-slot-count u2)) ERR-INVALID-PAYOUT)
+    (asserts! (is-standard oracle) ERR-NOT-AUTHORIZED)
+    (let
+      (
+        (condition-id (sha256 (concat (concat (unwrap-panic (to-consensus-buff? oracle)) question-id)
+                                      (unwrap-panic (to-consensus-buff? outcome-slot-count)))))
+      )
+      (asserts! (is-none (map-get? conditions { condition-id: condition-id })) ERR-INVALID-CONDITION)
+      (ok (map-set conditions
+        { condition-id: condition-id }
+        {
+          oracle: oracle,
+          question-id: question-id,
+          outcome-slot-count: outcome-slot-count,
+          resolved: false,
+          payout-numerators: (list u0 u0),
+          payout-denominator: u1
+        }
+      ))
     )
-    (asserts! (is-none (map-get? conditions { condition-id: condition-id })) ERR-INVALID-CONDITION)
-    (ok (map-set conditions
-      { condition-id: condition-id }
-      {
-        oracle: oracle,
-        question-id: question-id,
-        outcome-slot-count: outcome-slot-count,
-        resolved: false,
-        payout-numerators: (list u0 u0),
-        payout-denominator: u1
-      }
-    ))
   )
 )
 
@@ -94,75 +100,85 @@
   (collateral-amount uint)
   (condition-id (buff 32))
 )
-  (let
-    (
-      (condition (unwrap! (map-get? conditions { condition-id: condition-id }) ERR-INVALID-CONDITION))
-      (yes-position-id (get-position-id condition-id u0))
-      (no-position-id (get-position-id condition-id u1))
-      (current-yes-balance (balance-of tx-sender yes-position-id))
-      (current-no-balance (balance-of tx-sender no-position-id))
+  (begin
+    ;; Validate condition-id length before using it
+    (asserts! (is-eq (len condition-id) u32) ERR-INVALID-CONDITION)
+    (let
+      (
+        (condition (unwrap! (map-get? conditions { condition-id: condition-id }) ERR-INVALID-CONDITION))
+        (yes-position-id (get-position-id condition-id u0))
+        (no-position-id (get-position-id condition-id u1))
+        (current-yes-balance (balance-of tx-sender yes-position-id))
+        (current-no-balance (balance-of tx-sender no-position-id))
+      )
+      (asserts! (> collateral-amount u0) ERR-INVALID-AMOUNT)
+      (asserts! (is-eq (get resolved condition) false) ERR-CONDITION-ALREADY-RESOLVED)
+
+      ;; Transfer sBTC from user to contract (locks collateral)
+      (try! (contract-call? SBTC-TOKEN transfer
+        collateral-amount
+        tx-sender
+        (as-contract tx-sender)
+        none
+      ))
+
+      ;; Mint outcome tokens (YES + NO)
+      (set-balance tx-sender yes-position-id (+ current-yes-balance collateral-amount))
+      (set-balance tx-sender no-position-id (+ current-no-balance collateral-amount))
+
+      (print {
+        event: "position-split",
+        user: tx-sender,
+        condition-id: condition-id,
+        amount: collateral-amount
+      })
+      (ok true)
     )
-    (asserts! (> collateral-amount u0) ERR-INVALID-AMOUNT)
-    (asserts! (is-eq (get resolved condition) false) ERR-CONDITION-ALREADY-RESOLVED)
-
-    ;; Transfer sBTC from user to contract (locks collateral)
-    (try! (contract-call? SBTC-TOKEN transfer
-      collateral-amount
-      tx-sender
-      (as-contract tx-sender)
-      none
-    ))
-
-    ;; Mint outcome tokens (YES + NO)
-    (set-balance tx-sender yes-position-id (+ current-yes-balance collateral-amount))
-    (set-balance tx-sender no-position-id (+ current-no-balance collateral-amount))
-
-    (print {
-      event: "position-split",
-      user: tx-sender,
-      condition-id: condition-id,
-      amount: collateral-amount
-    })
-    (ok true)
   )
 )
 
-;; Merge outcome tokens back into collateral (e.g., 100 YES + 100 NO -> 100 USDA)
+;; Merge outcome tokens back into collateral (e.g., 100 YES + 100 NO -> 100 sBTC)
+;; Returns collateral to specified recipient
 (define-public (merge-positions
   (collateral-amount uint)
   (condition-id (buff 32))
+  (recipient principal)
 )
-  (let
-    (
-      (condition (unwrap! (map-get? conditions { condition-id: condition-id }) ERR-INVALID-CONDITION))
-      (yes-position-id (get-position-id condition-id u0))
-      (no-position-id (get-position-id condition-id u1))
-      (current-yes-balance (balance-of tx-sender yes-position-id))
-      (current-no-balance (balance-of tx-sender no-position-id))
+  (begin
+    ;; Validate condition-id length before using it
+    (asserts! (is-eq (len condition-id) u32) ERR-INVALID-CONDITION)
+    (let
+      (
+        (condition (unwrap! (map-get? conditions { condition-id: condition-id }) ERR-INVALID-CONDITION))
+        (yes-position-id (get-position-id condition-id u0))
+        (no-position-id (get-position-id condition-id u1))
+        (current-yes-balance (balance-of tx-sender yes-position-id))
+        (current-no-balance (balance-of tx-sender no-position-id))
+      )
+      (asserts! (> collateral-amount u0) ERR-INVALID-AMOUNT)
+      (asserts! (>= current-yes-balance collateral-amount) ERR-INSUFFICIENT-BALANCE)
+      (asserts! (>= current-no-balance collateral-amount) ERR-INSUFFICIENT-BALANCE)
+
+      ;; Burn outcome tokens
+      (set-balance tx-sender yes-position-id (- current-yes-balance collateral-amount))
+      (set-balance tx-sender no-position-id (- current-no-balance collateral-amount))
+
+      ;; Return sBTC collateral to recipient
+      (try! (as-contract (contract-call? SBTC-TOKEN transfer
+        collateral-amount
+        tx-sender
+        recipient
+        none
+      )))
+
+      (print {
+        event: "positions-merged",
+        user: tx-sender,
+        condition-id: condition-id,
+        amount: collateral-amount
+      })
+      (ok true)
     )
-    (asserts! (> collateral-amount u0) ERR-INVALID-AMOUNT)
-    (asserts! (>= current-yes-balance collateral-amount) ERR-INSUFFICIENT-BALANCE)
-    (asserts! (>= current-no-balance collateral-amount) ERR-INSUFFICIENT-BALANCE)
-
-    ;; Burn outcome tokens
-    (set-balance tx-sender yes-position-id (- current-yes-balance collateral-amount))
-    (set-balance tx-sender no-position-id (- current-no-balance collateral-amount))
-
-    ;; Return sBTC collateral to user
-    (try! (as-contract (contract-call? SBTC-TOKEN transfer
-      collateral-amount
-      tx-sender
-      tx-sender
-      none
-    )))
-
-    (print {
-      event: "positions-merged",
-      user: tx-sender,
-      condition-id: condition-id,
-      amount: collateral-amount
-    })
-    (ok true)
   )
 )
 
@@ -173,27 +189,33 @@
   (position-id (buff 32))
   (amount uint)
 )
-  (let
-    (
-      (sender-balance (balance-of from position-id))
-      (receiver-balance (balance-of to position-id))
-      (is-approved (default-to false (get approved (map-get? approval-for-all { owner: from, operator: tx-sender }))))
+  (begin
+    ;; Validate inputs before using them
+    (asserts! (is-eq (len position-id) u32) ERR-INVALID-CONDITION)
+    (asserts! (> amount u0) ERR-INVALID-AMOUNT)
+    (asserts! (is-standard to) ERR-NOT-AUTHORIZED)
+    (let
+      (
+        (sender-balance (balance-of from position-id))
+        (receiver-balance (balance-of to position-id))
+        (is-approved (default-to false (get approved (map-get? approval-for-all { owner: from, operator: tx-sender }))))
+      )
+      (asserts! (or (is-eq tx-sender from) is-approved) ERR-NOT-AUTHORIZED)
+      (asserts! (>= sender-balance amount) ERR-INSUFFICIENT-BALANCE)
+
+      ;; Update balances
+      (set-balance from position-id (- sender-balance amount))
+      (set-balance to position-id (+ receiver-balance amount))
+
+      (print {
+        event: "transfer",
+        from: from,
+        to: to,
+        position-id: position-id,
+        amount: amount
+      })
+      (ok true)
     )
-    (asserts! (or (is-eq tx-sender from) is-approved) ERR-NOT-AUTHORIZED)
-    (asserts! (>= sender-balance amount) ERR-INSUFFICIENT-BALANCE)
-
-    ;; Update balances
-    (set-balance from position-id (- sender-balance amount))
-    (set-balance to position-id (+ receiver-balance amount))
-
-    (print {
-      event: "transfer",
-      from: from,
-      to: to,
-      position-id: position-id,
-      amount: amount
-    })
-    (ok true)
   )
 )
 
@@ -217,38 +239,47 @@
 
 ;; Set approval for operator
 (define-public (set-approval-for-all (operator principal) (approved bool))
-  (ok (map-set approval-for-all
-    { owner: tx-sender, operator: operator }
-    { approved: approved }
-  ))
+  (begin
+    ;; Validate operator is not the same as the sender
+    (asserts! (is-eq (is-eq operator tx-sender) false) ERR-NOT-AUTHORIZED)
+    (ok (map-set approval-for-all
+      { owner: tx-sender, operator: operator }
+      { approved: approved }
+    ))
+  )
 )
 
 ;; Report payout from oracle (only callable by authorized oracle)
 (define-public (report-payout (condition-id (buff 32)) (payout-numerators (list 2 uint)))
-  (let
-    (
-      (condition (unwrap! (map-get? conditions { condition-id: condition-id }) ERR-INVALID-CONDITION))
-    )
-    (asserts! (is-eq tx-sender (get oracle condition)) ERR-NOT-AUTHORIZED)
-    (asserts! (is-eq (get resolved condition) false) ERR-CONDITION-ALREADY-RESOLVED)
-
-    ;; Validate payouts (must sum to denominator)
+  (begin
+    ;; Validate inputs before using them
+    (asserts! (is-eq (len condition-id) u32) ERR-INVALID-CONDITION)
+    (asserts! (is-eq (len payout-numerators) u2) ERR-INVALID-PAYOUT)
     (let
       (
-        (payout-sum (+ (unwrap-panic (element-at payout-numerators u0))
-                      (unwrap-panic (element-at payout-numerators u1))))
+        (condition (unwrap! (map-get? conditions { condition-id: condition-id }) ERR-INVALID-CONDITION))
       )
-      (asserts! (is-eq payout-sum u1) ERR-INVALID-PAYOUT)
-    )
+      (asserts! (is-eq tx-sender (get oracle condition)) ERR-NOT-AUTHORIZED)
+      (asserts! (is-eq (get resolved condition) false) ERR-CONDITION-ALREADY-RESOLVED)
 
-    (ok (map-set conditions
-      { condition-id: condition-id }
-      (merge condition {
-        resolved: true,
-        payout-numerators: payout-numerators,
-        payout-denominator: u1
-      })
-    ))
+      ;; Validate payouts (must sum to denominator)
+      (let
+        (
+          (payout-sum (+ (unwrap-panic (element-at payout-numerators u0))
+                        (unwrap-panic (element-at payout-numerators u1))))
+        )
+        (asserts! (is-eq payout-sum u1) ERR-INVALID-PAYOUT)
+      )
+
+      (ok (map-set conditions
+        { condition-id: condition-id }
+        (merge condition {
+          resolved: true,
+          payout-numerators: payout-numerators,
+          payout-denominator: u1
+        })
+      ))
+    )
   )
 )
 
@@ -257,40 +288,45 @@
   (condition-id (buff 32))
   (outcome-index uint)
 )
-  (let
-    (
-      (condition (unwrap! (map-get? conditions { condition-id: condition-id }) ERR-INVALID-CONDITION))
-      (position-id (get-position-id condition-id outcome-index))
-      (balance (balance-of tx-sender position-id))
-      (payout-numerator (unwrap-panic (element-at (get payout-numerators condition) outcome-index)))
-      (payout-denominator (get payout-denominator condition))
-      (payout-amount (/ (* balance payout-numerator) payout-denominator))
+  (begin
+    ;; Validate inputs before using them
+    (asserts! (is-eq (len condition-id) u32) ERR-INVALID-CONDITION)
+    (asserts! (or (is-eq outcome-index u0) (is-eq outcome-index u1)) ERR-INVALID-PAYOUT)
+    (let
+      (
+        (condition (unwrap! (map-get? conditions { condition-id: condition-id }) ERR-INVALID-CONDITION))
+        (position-id (get-position-id condition-id outcome-index))
+        (balance (balance-of tx-sender position-id))
+        (payout-numerator (unwrap-panic (element-at (get payout-numerators condition) outcome-index)))
+        (payout-denominator (get payout-denominator condition))
+        (payout-amount (/ (* balance payout-numerator) payout-denominator))
+      )
+      (asserts! (get resolved condition) ERR-CONDITION-NOT-RESOLVED)
+      (asserts! (> balance u0) ERR-INSUFFICIENT-BALANCE)
+
+      ;; Burn position tokens
+      (set-balance tx-sender position-id u0)
+
+      ;; Transfer sBTC payout to winner
+      (if (> payout-amount u0)
+        (try! (as-contract (contract-call? SBTC-TOKEN transfer
+          payout-amount
+          tx-sender
+          tx-sender
+          none
+        )))
+        true
+      )
+
+      (print {
+        event: "positions-redeemed",
+        user: tx-sender,
+        condition-id: condition-id,
+        outcome-index: outcome-index,
+        payout: payout-amount
+      })
+      (ok payout-amount)
     )
-    (asserts! (get resolved condition) ERR-CONDITION-NOT-RESOLVED)
-    (asserts! (> balance u0) ERR-INSUFFICIENT-BALANCE)
-
-    ;; Burn position tokens
-    (set-balance tx-sender position-id u0)
-
-    ;; Transfer sBTC payout to winner
-    (if (> payout-amount u0)
-      (try! (as-contract (contract-call? SBTC-TOKEN transfer
-        payout-amount
-        tx-sender
-        tx-sender
-        none
-      )))
-      true
-    )
-
-    (print {
-      event: "positions-redeemed",
-      user: tx-sender,
-      condition-id: condition-id,
-      outcome-index: outcome-index,
-      payout: payout-amount
-    })
-    (ok payout-amount)
   )
 )
 
@@ -312,9 +348,15 @@
 )
 
 (define-read-only (get-collection-id (condition-id (buff 32)))
-  (sha256 condition-id)
+  (if (is-eq (len condition-id) u32)
+    (sha256 condition-id)
+    0x0000000000000000000000000000000000000000000000000000000000000000
+  )
 )
 
 (define-read-only (get-position-id-readonly (condition-id (buff 32)) (outcome-index uint))
-  (get-position-id condition-id outcome-index)
+  (if (and (is-eq (len condition-id) u32) (or (is-eq outcome-index u0) (is-eq outcome-index u1)))
+    (get-position-id condition-id outcome-index)
+    0x0000000000000000000000000000000000000000000000000000000000000000
+  )
 )

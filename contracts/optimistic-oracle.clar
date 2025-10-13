@@ -95,14 +95,19 @@
   (reward uint)
 )
   (begin
+    ;; Validate inputs
+    (asserts! (is-eq (len question-id) u32) ERR-INVALID-QUESTION)
+    (asserts! (> reward u0) ERR-INVALID-QUESTION)
     (asserts! (is-none (map-get? questions { question-id: question-id })) ERR-INVALID-QUESTION)
+    ;; Validate question content is not empty
+    (asserts! (> (len question) u0) ERR-INVALID-QUESTION)
     (ok (map-set questions
       { question-id: question-id }
       {
         requester: tx-sender,
         question: question,
         reward: reward,
-        timestamp: stacks-block-height,
+        timestamp: tenure-height,
         state: STATE-PROPOSED
       }
     ))
@@ -118,6 +123,9 @@
     (
       (question (unwrap! (map-get? questions { question-id: question-id }) ERR-INVALID-QUESTION))
     )
+    ;; Validate inputs
+    (asserts! (is-eq (len question-id) u32) ERR-INVALID-QUESTION)
+    (asserts! (or (is-eq proposed-answer u0) (is-eq proposed-answer u1)) ERR-INVALID-QUESTION)
     (asserts! (is-none (map-get? proposals { question-id: question-id })) ERR-ALREADY-PROPOSED)
 
     ;; Lock proposer's bond (in production, transfer from SIP-010 token)
@@ -129,7 +137,7 @@
         proposer: tx-sender,
         proposed-answer: proposed-answer,
         bond: BOND_AMOUNT,
-        proposal-time: stacks-block-height
+        proposal-time: tenure-height
       }
     )
 
@@ -150,9 +158,11 @@
       (question (unwrap! (map-get? questions { question-id: question-id }) ERR-INVALID-QUESTION))
       (proposal (unwrap! (map-get? proposals { question-id: question-id }) ERR-NO-PROPOSAL))
     )
+    ;; Validate input
+    (asserts! (is-eq (len question-id) u32) ERR-INVALID-QUESTION)
     (asserts! (is-none (map-get? disputes { question-id: question-id })) ERR-ALREADY-DISPUTED)
     (asserts!
-      (< stacks-block-height (+ (get proposal-time proposal) CHALLENGE_WINDOW))
+      (< tenure-height (+ (get proposal-time proposal) CHALLENGE_WINDOW))
       ERR-CHALLENGE-WINDOW-CLOSED
     )
 
@@ -170,7 +180,7 @@
       {
         disputer: tx-sender,
         bond: BOND_AMOUNT,
-        dispute-time: stacks-block-height
+        dispute-time: tenure-height
       }
     )
 
@@ -180,7 +190,7 @@
       {
         yes-votes: u0,
         no-votes: u0,
-        voting-ends: (+ stacks-block-height VOTING_PERIOD)
+        voting-ends: (+ tenure-height VOTING_PERIOD)
       }
     )
 
@@ -209,8 +219,12 @@
       (question (unwrap! (map-get? questions { question-id: question-id }) ERR-INVALID-QUESTION))
       (tally (unwrap! (map-get? vote-tallies { question-id: question-id }) ERR-NOT-DISPUTED))
     )
+    ;; Validate inputs
+    (asserts! (is-eq (len question-id) u32) ERR-INVALID-QUESTION)
+    (asserts! (or (is-eq vote-value u0) (is-eq vote-value u1)) ERR-INVALID-QUESTION)
+    (asserts! (> stake u0) ERR-INSUFFICIENT-BOND)
     (asserts! (is-eq (get state question) STATE-VOTING) ERR-VOTING-NOT-ACTIVE)
-    (asserts! (< stacks-block-height (get voting-ends tally)) ERR-CHALLENGE-WINDOW-CLOSED)
+    (asserts! (< tenure-height (get voting-ends tally)) ERR-CHALLENGE-WINDOW-CLOSED)
     (asserts! (is-none (map-get? votes { question-id: question-id, voter: tx-sender })) ERR-ALREADY-VOTED)
 
     ;; Lock voter's stake
@@ -255,6 +269,8 @@
       (question (unwrap! (map-get? questions { question-id: question-id }) ERR-INVALID-QUESTION))
       (proposal (unwrap! (map-get? proposals { question-id: question-id }) ERR-NO-PROPOSAL))
     )
+    ;; Validate input
+    (asserts! (is-eq (len question-id) u32) ERR-INVALID-QUESTION)
     (asserts! (not (is-eq (get state question) STATE-RESOLVED)) ERR-ALREADY-RESOLVED)
 
     (let
@@ -266,7 +282,7 @@
               (
                 (tally (unwrap-panic (map-get? vote-tallies { question-id: question-id })))
               )
-              (asserts! (>= stacks-block-height (get voting-ends tally)) ERR-VOTING-NOT-ACTIVE)
+              (asserts! (>= tenure-height (get voting-ends tally)) ERR-VOTING-NOT-ACTIVE)
               (if (> (get yes-votes tally) (get no-votes tally))
                 u1
                 u0
@@ -275,7 +291,7 @@
             ;; If not disputed, use proposal after challenge window
             (begin
               (asserts!
-                (>= stacks-block-height (+ (get proposal-time proposal) CHALLENGE_WINDOW))
+                (>= tenure-height (+ (get proposal-time proposal) CHALLENGE_WINDOW))
                 ERR-CHALLENGE-WINDOW-OPEN
               )
               (get proposed-answer proposal)
@@ -289,7 +305,7 @@
         { question-id: question-id }
         {
           final-answer: final-answer,
-          resolved-at: stacks-block-height
+          resolved-at: tenure-height
         }
       )
 

@@ -41,14 +41,13 @@
 )
 
 ;; Collateral token - using real sBTC (Bitcoin-backed token on Stacks)
-;; In simnet/devnet: SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token (auto-funded)
+;; In simnet/devnet: SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token (deployed via requirements)
 ;; In testnet: ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.sbtc-token
 ;; In mainnet: SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-(define-constant SBTC-TOKEN 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token)
 
 ;; Helper: generate position ID from condition and outcome index
 (define-private (get-position-id (condition-id (buff 32)) (outcome-index uint))
-  (sha256 (concat condition-id (unwrap-panic (to-consensus-buff? outcome-index))))
+  (sha256 (concat condition-id (unwrap! (to-consensus-buff? outcome-index) 0x0000000000000000000000000000000000000000000000000000000000000000)))
 )
 
 ;; Helper: get balance
@@ -77,21 +76,29 @@
     ;; The oracle-adapter will call this with (as-contract tx-sender) as the oracle
     (let
       (
-        (condition-id (sha256 (concat (concat (unwrap-panic (to-consensus-buff? oracle)) question-id)
-                                      (unwrap-panic (to-consensus-buff? outcome-slot-count)))))
+        (oracle-buff (unwrap! (to-consensus-buff? oracle) ERR-INVALID-CONDITION))
+        (outcome-buff (unwrap! (to-consensus-buff? outcome-slot-count) ERR-INVALID-PAYOUT))
       )
-      (asserts! (is-none (map-get? conditions { condition-id: condition-id })) ERR-INVALID-CONDITION)
-      (ok (map-set conditions
-        { condition-id: condition-id }
-        {
-          oracle: oracle,
-          question-id: question-id,
-          outcome-slot-count: outcome-slot-count,
-          resolved: false,
-          payout-numerators: (list u0 u0),
-          payout-denominator: u1
-        }
-      ))
+      (let
+        (
+          (condition-id (sha256 (concat (concat oracle-buff question-id) outcome-buff)))
+        )
+        ;; Validate condition-id is correct length (sha256 always produces 32 bytes)
+        (asserts! (is-eq (len condition-id) u32) ERR-INVALID-CONDITION)
+        (asserts! (is-none (map-get? conditions { condition-id: condition-id })) ERR-INVALID-CONDITION)
+        (map-set conditions
+          { condition-id: condition-id }
+          {
+            oracle: oracle,
+            question-id: question-id,
+            outcome-slot-count: outcome-slot-count,
+            resolved: false,
+            payout-numerators: (list u0 u0),
+            payout-denominator: u1
+          }
+        )
+        (ok condition-id)
+      )
     )
   )
 )
@@ -116,7 +123,7 @@
       (asserts! (is-eq (get resolved condition) false) ERR-CONDITION-ALREADY-RESOLVED)
 
       ;; Transfer sBTC from user to contract (locks collateral)
-      (try! (contract-call? SBTC-TOKEN transfer
+      (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
         collateral-amount
         tx-sender
         (as-contract tx-sender)
@@ -165,7 +172,7 @@
       (set-balance tx-sender no-position-id (- current-no-balance collateral-amount))
 
       ;; Return sBTC collateral to recipient
-      (try! (as-contract (contract-call? SBTC-TOKEN transfer
+      (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
         collateral-amount
         tx-sender
         recipient
@@ -311,7 +318,7 @@
       ;; Transfer sBTC payout to winner
       (if (> payout-amount u0)
         (let ((user tx-sender))
-          (try! (as-contract (contract-call? SBTC-TOKEN transfer
+          (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
             payout-amount
             (as-contract tx-sender) ;; FROM: contract escrow
             user                    ;; TO: actual winner

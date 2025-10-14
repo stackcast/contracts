@@ -45,11 +45,15 @@
       (question-id market-id) ;; Use same ID for simplicity
       (outcome-slot-count u2) ;; Binary markets (YES/NO)
     )
+    ;; Validate inputs
+    (asserts! (is-eq (len market-id) u32) ERR-INVALID-MARKET)
+    (asserts! (> reward u0) ERR-INVALID-MARKET)
+    (asserts! (and (> (len question) u0) (<= (len question) u256)) ERR-INVALID-MARKET)
     (asserts! (is-none (map-get? markets { market-id: market-id })) ERR-MARKET-ALREADY-INITIALIZED)
 
     ;; Create condition in CTF
     ;; The oracle for this condition will be this adapter contract
-    (unwrap! (contract-call? CONDITIONAL_TOKENS_CONTRACT prepare-condition
+    (unwrap! (contract-call? .conditional-tokens prepare-condition
       (as-contract tx-sender) ;; This contract is the oracle
       question-id
       outcome-slot-count
@@ -65,7 +69,7 @@
       )
 
       ;; Initialize question in oracle
-      (unwrap! (contract-call? ORACLE_CONTRACT initialize-question
+      (unwrap! (contract-call? .optimistic-oracle initialize-question
         question-id
         question
         reward
@@ -80,7 +84,7 @@
           question: question,
           creator: tx-sender,
           reward: reward,
-          created-at: stacks-block-height,
+          created-at: tenure-height,
           resolved: false
         }
       )
@@ -108,12 +112,14 @@
       (question-id (get question-id market))
       (condition-id (get condition-id market))
     )
+    ;; Validate input
+    (asserts! (is-eq (len market-id) u32) ERR-INVALID-MARKET)
     (asserts! (not (get resolved market)) ERR-ALREADY-RESOLVED)
 
     ;; Check if oracle has resolved
     (let
       (
-        (oracle-answer (unwrap! (contract-call? ORACLE_CONTRACT get-final-answer question-id) ERR-ORACLE-NOT-RESOLVED))
+        (oracle-answer (unwrap! (contract-call? .optimistic-oracle get-final-answer question-id) ERR-ORACLE-NOT-RESOLVED))
       )
 
       ;; Convert oracle answer to payout array
@@ -131,7 +137,7 @@
 
         ;; Report payout to CTF (as contract, since we're the oracle)
         (as-contract
-          (unwrap! (contract-call? CONDITIONAL_TOKENS_CONTRACT report-payout
+          (unwrap! (contract-call? .conditional-tokens report-payout
             condition-id
             payout-numerators
           ) ERR-CONTRACT-CALL-FAILED)
@@ -153,8 +159,8 @@
         (ok true)
       )
     )
+    )
   )
-)
 
 ;; Helper: Get market by ID
 (define-read-only (get-market (market-id (buff 32)))
@@ -179,8 +185,8 @@
   (match (map-get? markets { market-id: market-id })
     market (some (get condition-id market))
     none
+    )
   )
-)
 
 ;; Helper: Get question ID for a market
 (define-read-only (get-question-id (market-id (buff 32)))
@@ -194,6 +200,8 @@
 (define-public (set-contract-owner (new-owner principal))
   (begin
     (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-NOT-AUTHORIZED)
+    ;; Validate that new owner is not the same as current owner
+    (asserts! (not (is-eq new-owner (var-get contract-owner))) ERR-NOT-AUTHORIZED)
     (ok (var-set contract-owner new-owner))
   )
 )

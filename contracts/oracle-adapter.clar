@@ -48,12 +48,12 @@
     ;; Validate inputs
     (asserts! (is-eq (len market-id) u32) ERR-INVALID-MARKET)
     (asserts! (> reward u0) ERR-INVALID-MARKET)
-    (asserts! (is-eq (len question) u256) ERR-INVALID-MARKET)
+    (asserts! (and (> (len question) u0) (<= (len question) u256)) ERR-INVALID-MARKET)
     (asserts! (is-none (map-get? markets { market-id: market-id })) ERR-MARKET-ALREADY-INITIALIZED)
 
     ;; Create condition in CTF
     ;; The oracle for this condition will be this adapter contract
-    (unwrap! (contract-call? CONDITIONAL_TOKENS_CONTRACT prepare-condition
+    (unwrap! (contract-call? .conditional-tokens prepare-condition
       (as-contract tx-sender) ;; This contract is the oracle
       question-id
       outcome-slot-count
@@ -69,7 +69,7 @@
       )
 
       ;; Initialize question in oracle
-      (unwrap! (contract-call? ORACLE_CONTRACT initialize-question
+      (unwrap! (contract-call? .optimistic-oracle initialize-question
         question-id
         question
         reward
@@ -119,7 +119,7 @@
     ;; Check if oracle has resolved
     (let
       (
-        (oracle-answer (unwrap! (contract-call? ORACLE_CONTRACT get-final-answer question-id) ERR-ORACLE-NOT-RESOLVED))
+        (oracle-answer (unwrap! (contract-call? .optimistic-oracle get-final-answer question-id) ERR-ORACLE-NOT-RESOLVED))
       )
 
       ;; Convert oracle answer to payout array
@@ -137,7 +137,7 @@
 
         ;; Report payout to CTF (as contract, since we're the oracle)
         (as-contract
-          (unwrap! (contract-call? CONDITIONAL_TOKENS_CONTRACT report-payout
+          (unwrap! (contract-call? .conditional-tokens report-payout
             condition-id
             payout-numerators
           ) ERR-CONTRACT-CALL-FAILED)

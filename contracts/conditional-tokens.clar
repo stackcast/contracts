@@ -73,7 +73,8 @@
     ;; Validate inputs before using them
     (asserts! (is-eq (len question-id) u32) ERR-INVALID-CONDITION)
     (asserts! (and (> outcome-slot-count u0) (<= outcome-slot-count u2)) ERR-INVALID-PAYOUT)
-    (asserts! (is-standard oracle) ERR-NOT-AUTHORIZED)
+    ;; Allow any principal as oracle (contracts or standard principals)
+    ;; The oracle-adapter will call this with (as-contract tx-sender) as the oracle
     (let
       (
         (condition-id (sha256 (concat (concat (unwrap-panic (to-consensus-buff? oracle)) question-id)
@@ -309,12 +310,14 @@
 
       ;; Transfer sBTC payout to winner
       (if (> payout-amount u0)
-        (try! (as-contract (contract-call? SBTC-TOKEN transfer
-          payout-amount
-          tx-sender
-          tx-sender
-          none
-        )))
+        (let ((user tx-sender))
+          (try! (as-contract (contract-call? SBTC-TOKEN transfer
+            payout-amount
+            (as-contract tx-sender) ;; FROM: contract escrow
+            user                    ;; TO: actual winner
+            none
+          )))
+        )
         true
       )
 

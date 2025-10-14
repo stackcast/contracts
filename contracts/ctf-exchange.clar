@@ -46,7 +46,8 @@
 (define-read-only (hash-order
   (maker principal)
   (taker principal)
-  (position-id (buff 32))
+  (maker-position-id (buff 32))
+  (taker-position-id (buff 32))
   (maker-amount uint)
   (taker-amount uint)
   (salt uint)
@@ -58,10 +59,13 @@
         (concat
           (concat
             (concat
-              (unwrap-panic (to-consensus-buff? maker))
-              (unwrap-panic (to-consensus-buff? taker))
+              (concat
+                (unwrap-panic (to-consensus-buff? maker))
+                (unwrap-panic (to-consensus-buff? taker))
+              )
+              maker-position-id
             )
-            position-id
+            taker-position-id
           )
           (unwrap-panic (to-consensus-buff? maker-amount))
         )
@@ -135,7 +139,7 @@
     
     (let
       (
-        (order-hash (hash-order maker taker maker-position-id maker-amount taker-amount salt expiration))
+        (order-hash (hash-order maker taker maker-position-id taker-position-id maker-amount taker-amount salt expiration))
         (filled-amount (default-to u0 (get filled-amount (map-get? filled-orders { order-hash: order-hash }))))
       )
       ;; Checks
@@ -222,7 +226,8 @@
 (define-public (cancel-order
   (maker principal)
   (taker principal)
-  (position-id (buff 32))
+  (maker-position-id (buff 32))
+  (taker-position-id (buff 32))
   (maker-amount uint)
   (taker-amount uint)
   (salt uint)
@@ -232,14 +237,15 @@
     ;; Validate inputs before using them
     (asserts! (is-standard maker) ERR-NOT-AUTHORIZED)
     (asserts! (is-standard taker) ERR-NOT-AUTHORIZED)
-    (asserts! (is-eq (len position-id) u32) ERR-INVALID-ORDER)
+    (asserts! (is-eq (len maker-position-id) u32) ERR-INVALID-ORDER)
+    (asserts! (is-eq (len taker-position-id) u32) ERR-INVALID-ORDER)
     (asserts! (> maker-amount u0) ERR-INVALID-AMOUNTS)
     (asserts! (> taker-amount u0) ERR-INVALID-AMOUNTS)
     (asserts! (> expiration tenure-height) ERR-ORDER-EXPIRED)
     (asserts! (>= salt u0) ERR-INVALID-ORDER)
     (let
       (
-        (order-hash (hash-order maker taker position-id maker-amount taker-amount salt expiration))
+        (order-hash (hash-order maker taker maker-position-id taker-position-id maker-amount taker-amount salt expiration))
       )
       (asserts! (is-eq tx-sender maker) ERR-NOT-AUTHORIZED)
       (asserts! (is-none (map-get? cancelled-orders { order-hash: order-hash })) ERR-ORDER-CANCELLED)

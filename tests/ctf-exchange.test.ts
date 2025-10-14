@@ -188,7 +188,8 @@ describe("CTF Exchange", () => {
         [
           Cl.principal(wallet1),
           Cl.principal(wallet2),
-          Cl.buffer(yesPositionId),
+          Cl.buffer(yesPositionId),     // maker-position-id
+          Cl.buffer(noPositionId),      // taker-position-id
           Cl.uint(makerAmount),
           Cl.uint(takerAmount),
           Cl.uint(salt),
@@ -222,7 +223,8 @@ describe("CTF Exchange", () => {
         [
           Cl.principal(wallet1),
           Cl.principal(wallet2),
-          Cl.buffer(yesPositionId),
+          Cl.buffer(yesPositionId),     // maker-position-id
+          Cl.buffer(noPositionId),      // taker-position-id
           Cl.uint(makerAmount),
           Cl.uint(takerAmount),
           Cl.uint(salt),
@@ -246,7 +248,8 @@ describe("CTF Exchange", () => {
         [
           Cl.principal(wallet1),
           Cl.principal(wallet2),
-          Cl.buffer(yesPositionId),
+          Cl.buffer(yesPositionId),     // maker-position-id
+          Cl.buffer(noPositionId),      // taker-position-id
           Cl.uint(makerAmount),
           Cl.uint(takerAmount),
           Cl.uint(salt),
@@ -272,6 +275,7 @@ describe("CTF Exchange", () => {
           Cl.principal(wallet1),
           Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
+          Cl.buffer(noPositionId),
           Cl.uint(makerAmount),
           Cl.uint(takerAmount),
           Cl.uint(salt),

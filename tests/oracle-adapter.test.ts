@@ -21,7 +21,7 @@ describe("Oracle Adapter", () => {
         deployer
       );
 
-      expect(result.result).toBeErr(Cl.uint(301)); // ERR-INVALID-MARKET due to missing contracts
+      expect(result.result).toBeOk(expect.anything()); // Returns condition-id buffer
     });
 
     it("prevents duplicate market initialization", () => {
@@ -41,7 +41,7 @@ describe("Oracle Adapter", () => {
         deployer
       );
 
-      expect(result.result).toBeErr(Cl.uint(301)); // ERR-INVALID-MARKET due to missing contracts
+      expect(result.result).toBeErr(Cl.uint(302)); // ERR-MARKET-ALREADY-INITIALIZED
     });
 
     it("stores market metadata correctly", () => {
@@ -59,7 +59,7 @@ describe("Oracle Adapter", () => {
         deployer
       );
 
-      expect(market.result).toBeNone(); // Market not created due to error
+      expect(market.result).toBeSome(expect.anything()); // Market created successfully
     });
   });
 
@@ -82,7 +82,7 @@ describe("Oracle Adapter", () => {
         deployer
       );
 
-      expect(result.result).toBeErr(Cl.uint(301)); // ERR-INVALID-MARKET since market wasn't created
+      expect(result.result).toBeErr(Cl.uint(303)); // ERR-ORACLE-NOT-RESOLVED
     });
 
     it("resolves market after oracle resolution", () => {
@@ -113,7 +113,7 @@ describe("Oracle Adapter", () => {
         deployer
       );
 
-      expect(result.result).toBeErr(Cl.uint(301)); // ERR-INVALID-MARKET since market wasn't created
+      expect(result.result).toBeOk(Cl.bool(true)); // Market resolved successfully
     });
 
     it("prevents double resolution", () => {
@@ -146,7 +146,7 @@ describe("Oracle Adapter", () => {
         deployer
       );
 
-      expect(result.result).toBeErr(Cl.uint(301)); // ERR-INVALID-MARKET since market wasn't created
+      expect(result.result).toBeErr(Cl.uint(304)); // ERR-ALREADY-RESOLVED
     });
   });
 
@@ -168,7 +168,7 @@ describe("Oracle Adapter", () => {
         deployer
       );
 
-      expect(count.result).toBeUint(0); // No markets created due to errors
+      expect(count.result).toBeUint(1); // Market created in beforeEach
     });
 
     it("checks market resolution status", () => {
@@ -190,7 +190,7 @@ describe("Oracle Adapter", () => {
         deployer
       );
 
-      expect(conditionId.result).toBeNone(); // No market created, so no condition ID
+      expect(conditionId.result).toBeSome(expect.anything()); // Market created, returns condition ID
     });
   });
 });

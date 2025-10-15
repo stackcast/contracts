@@ -38,28 +38,28 @@ plan:
         - contract-publish:
             contract-name: conditional-tokens
             expected-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            cost: 121680
+            cost: 134980
             path: contracts/conditional-tokens.clar
             anchor-block-only: true
             clarity-version: 3
         - contract-publish:
             contract-name: ctf-exchange
             expected-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            cost: 93240
+            cost: 95970
             path: contracts/ctf-exchange.clar
             anchor-block-only: true
             clarity-version: 3
         - contract-publish:
             contract-name: optimistic-oracle
             expected-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            cost: 104930
+            cost: 152890
             path: contracts/optimistic-oracle.clar
             anchor-block-only: true
             clarity-version: 3
         - contract-publish:
             contract-name: oracle-adapter
             expected-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            cost: 61570
+            cost: 61720
             path: contracts/oracle-adapter.clar
             anchor-block-only: true
             clarity-version: 3

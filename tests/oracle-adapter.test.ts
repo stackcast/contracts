@@ -1,10 +1,9 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { Cl } from "@stacks/transactions";
+import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
 
 const accounts = simnet.getAccounts();
 const deployer = accounts.get("deployer")!;
 const wallet1 = accounts.get("wallet_1")!;
-const wallet2 = accounts.get("wallet_2")!;
 
 describe("Oracle Adapter", () => {
   const marketId = new Uint8Array(32).fill(1);
@@ -21,7 +20,11 @@ describe("Oracle Adapter", () => {
         deployer
       );
 
-      expect(result.result).toBeOk(expect.anything()); // Returns condition-id buffer
+      // Verify it returns a buffer (condition-id)
+      if (!isClarityType(result.result, ClarityType.ResponseOk)) {
+        throw new Error(`Expected ResponseOk, got ${result.result.type}`);
+      }
+      expect(result.result.value).toHaveClarityType(ClarityType.Buffer);
     });
 
     it("prevents duplicate market initialization", () => {
@@ -59,7 +62,11 @@ describe("Oracle Adapter", () => {
         deployer
       );
 
-      expect(market.result).toBeSome(expect.anything()); // Market created successfully
+      // Market created successfully, verify it's a Some with a Tuple
+      if (!isClarityType(market.result, ClarityType.OptionalSome)) {
+        throw new Error(`Expected OptionalSome for market, got ${market.result.type}`);
+      }
+      expect(market.result.value).toHaveClarityType(ClarityType.Tuple);
     });
   });
 
@@ -190,7 +197,11 @@ describe("Oracle Adapter", () => {
         deployer
       );
 
-      expect(conditionId.result).toBeSome(expect.anything()); // Market created, returns condition ID
+      // Market created, returns condition ID buffer
+      if (!isClarityType(conditionId.result, ClarityType.OptionalSome)) {
+        throw new Error(`Expected OptionalSome for condition ID, got ${conditionId.result.type}`);
+      }
+      expect(conditionId.result.value).toHaveClarityType(ClarityType.Buffer);
     });
   });
 });

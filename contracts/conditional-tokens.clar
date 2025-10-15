@@ -234,15 +234,41 @@
   (position-ids (list 10 (buff 32)))
   (amounts (list 10 uint))
 )
-  (ok (map safe-transfer-from-helper
-    (list
-      { from: from, to: to, position-id: (unwrap-panic (element-at position-ids u0)), amount: (unwrap-panic (element-at amounts u0)) }
+  (begin
+    (asserts! (is-eq (len position-ids) (len amounts)) ERR-INVALID-AMOUNT)
+    (match
+      (fold safe-batch-transfer-fold
+        (map create-transfer-params position-ids amounts)
+        (ok { from: from, to: to })
+      )
+      final-state (ok true)
+      transfer-error (err transfer-error)
     )
-  ))
+  )
 )
 
-(define-private (safe-transfer-from-helper (params { from: principal, to: principal, position-id: (buff 32), amount: uint }))
-  (safe-transfer-from (get from params) (get to params) (get position-id params) (get amount params))
+;; Helper to create transfer params from parallel lists
+(define-private (create-transfer-params (position-id (buff 32)) (amount uint))
+  { position-id: position-id, amount: amount }
+)
+
+;; Fold helper for batch transfers - returns response to propagate errors
+(define-private (safe-batch-transfer-fold
+  (params { position-id: (buff 32), amount: uint })
+  (state (response { from: principal, to: principal } uint))
+)
+  (match state
+    success-state
+      (match (safe-transfer-from
+               (get from success-state)
+               (get to success-state)
+               (get position-id params)
+               (get amount params))
+        transfer-success (ok success-state)
+        transfer-failure (err transfer-failure)
+      )
+    existing-error (err existing-error)
+  )
 )
 
 ;; Set approval for operator

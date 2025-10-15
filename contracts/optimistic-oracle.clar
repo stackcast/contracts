@@ -15,6 +15,9 @@
 (define-constant ERR-INSUFFICIENT-BOND (err u209))
 (define-constant ERR-ALREADY-VOTED (err u210))
 (define-constant ERR-VOTING-NOT-ACTIVE (err u211))
+(define-constant ERR-NOT-RESOLVED (err u212))
+(define-constant ERR-ALREADY-CLAIMED (err u213))
+(define-constant ERR-NO-STAKE (err u214))
 
 ;; Constants
 (define-constant CHALLENGE_WINDOW u144) ;; ~24 hours in blocks (10min blocks)
@@ -85,8 +88,16 @@
   }
 )
 
-;; Mock governance token for voting (in production, use real token)
-(define-fungible-token oracle-token)
+;; Track stake claims
+(define-map stake-claims
+  { question-id: (buff 32), voter: principal }
+  { claimed: bool }
+)
+
+;; Governance token for voting/bonding
+;; Uses sBTC as the bond token (same as collateral in CTF)
+;; In production, this could be replaced with a dedicated governance token
+;; Note: The sBTC contract address is hardcoded below in transfer calls
 
 ;; Initialize a new question
 (define-public (initialize-question
@@ -128,8 +139,13 @@
     (asserts! (or (is-eq proposed-answer u0) (is-eq proposed-answer u1)) ERR-INVALID-QUESTION)
     (asserts! (is-none (map-get? proposals { question-id: question-id })) ERR-ALREADY-PROPOSED)
 
-    ;; Lock proposer's bond (in production, transfer from SIP-010 token)
-    (try! (ft-mint? oracle-token BOND_AMOUNT tx-sender))
+    ;; Lock proposer's bond (transfer sBTC to contract)
+    (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+      BOND_AMOUNT
+      tx-sender
+      (as-contract tx-sender)
+      none
+    ))
 
     (map-set proposals
       { question-id: question-id }
@@ -166,8 +182,13 @@
       ERR-CHALLENGE-WINDOW-CLOSED
     )
 
-    ;; Lock disputer's bond
-    (try! (ft-mint? oracle-token BOND_AMOUNT tx-sender))
+    ;; Lock disputer's bond (transfer sBTC to contract)
+    (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+      BOND_AMOUNT
+      tx-sender
+      (as-contract tx-sender)
+      none
+    ))
 
     ;; Update question state to DISPUTED
     (map-set questions
@@ -227,8 +248,13 @@
     (asserts! (< tenure-height (get voting-ends tally)) ERR-CHALLENGE-WINDOW-CLOSED)
     (asserts! (is-none (map-get? votes { question-id: question-id, voter: tx-sender })) ERR-ALREADY-VOTED)
 
-    ;; Lock voter's stake
-    (try! (ft-mint? oracle-token stake tx-sender))
+    ;; Lock voter's stake (transfer sBTC to contract)
+    (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+      stake
+      tx-sender
+      (as-contract tx-sender)
+      none
+    ))
 
     ;; Record vote
     (map-set votes
@@ -314,20 +340,58 @@
         (merge question { state: STATE-RESOLVED })
       )
 
-      ;; Handle rewards/slashing (simplified - in production, distribute to correct voters)
+      ;; Handle rewards/slashing
       (if (is-some (map-get? disputes { question-id: question-id }))
         (let
           (
             (dispute (unwrap-panic (map-get? disputes { question-id: question-id })))
+            (proposal-bond (get bond proposal))
+            (dispute-bond (get bond dispute))
           )
-          ;; If disputer was correct, slash proposer
+          ;; If disputer was correct, return disputer's stake and award proposer's bond
           (if (not (is-eq final-answer (get proposed-answer proposal)))
-            (try! (ft-burn? oracle-token BOND_AMOUNT (get proposer proposal)))
-            ;; If proposer was correct, slash disputer
-            (try! (ft-burn? oracle-token BOND_AMOUNT (get disputer dispute)))
+            (begin
+              ;; Return disputer's own stake
+              (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+                dispute-bond
+                tx-sender
+                (get disputer dispute)
+                none
+              )))
+              ;; Award slashed proposer's bond to disputer
+              (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+                proposal-bond
+                tx-sender
+                (get disputer dispute)
+                none
+              )))
+            )
+            ;; If proposer was correct, return proposer's stake and award disputer's bond
+            (begin
+              ;; Return proposer's own stake
+              (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+                proposal-bond
+                tx-sender
+                (get proposer proposal)
+                none
+              )))
+              ;; Award slashed disputer's bond to proposer
+              (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+                dispute-bond
+                tx-sender
+                (get proposer proposal)
+                none
+              )))
+            )
           )
         )
-        true
+        ;; If no dispute, return bond to proposer
+        (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+          (get bond proposal)
+          tx-sender
+          (get proposer proposal)
+          none
+        )))
       )
 
       (print {
@@ -374,5 +438,79 @@
   (match (map-get? resolutions { question-id: question-id })
     resolution (some (get final-answer resolution))
     none
+  )
+)
+
+;; Claim vote rewards after resolution
+(define-public (claim-vote-rewards (question-id (buff 32)))
+  (let
+    (
+      (claimer tx-sender)
+      (question (unwrap! (map-get? questions { question-id: question-id }) ERR-INVALID-QUESTION))
+      (resolution (unwrap! (map-get? resolutions { question-id: question-id }) ERR-NOT-RESOLVED))
+      (vote-data (unwrap! (map-get? votes { question-id: question-id, voter: claimer }) ERR-NO-STAKE))
+      (tally (unwrap! (map-get? vote-tallies { question-id: question-id }) ERR-NOT-DISPUTED))
+      (final-answer (get final-answer resolution))
+      (voter-vote (get vote vote-data))
+      (voter-stake (get stake vote-data))
+    )
+    ;; Validate input and state
+    (asserts! (is-eq (len question-id) u32) ERR-INVALID-QUESTION)
+    (asserts! (is-eq (get state question) STATE-RESOLVED) ERR-NOT-RESOLVED)
+    (asserts! (is-none (map-get? stake-claims { question-id: question-id, voter: claimer })) ERR-ALREADY-CLAIMED)
+
+    ;; Mark as claimed
+    (map-set stake-claims
+      { question-id: question-id, voter: claimer }
+      { claimed: true }
+    )
+
+    (let
+      (
+        (yes-total (get yes-votes tally))
+        (no-total (get no-votes tally))
+        (winning-total (if (is-eq final-answer u1) yes-total no-total))
+        (losing-total (if (is-eq final-answer u1) no-total yes-total))
+        (voter-won (is-eq voter-vote final-answer))
+      )
+      (if voter-won
+        ;; Winner: return stake + proportional share of losing stakes
+        (let
+          (
+            (reward-share (if (> winning-total u0)
+              (/ (* voter-stake losing-total) winning-total)
+              u0
+            ))
+            (total-reward (+ voter-stake reward-share))
+          )
+          ;; Transfer rewards to voter
+          (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+            total-reward
+            tx-sender
+            claimer
+            none
+          )))
+          (print {
+            event: "vote-rewards-claimed",
+            question-id: question-id,
+            voter: claimer,
+            stake-returned: voter-stake,
+            reward: reward-share,
+            total: total-reward
+          })
+          (ok total-reward)
+        )
+        ;; Loser: stake is forfeited (already distributed to winners)
+        (begin
+          (print {
+            event: "vote-stake-forfeited",
+            question-id: question-id,
+            voter: claimer,
+            stake-lost: voter-stake
+          })
+          (ok u0)
+        )
+      )
+    )
   )
 )

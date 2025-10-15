@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { Cl } from "@stacks/transactions";
+import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
 
 const accounts = simnet.getAccounts();
 const deployer = accounts.get("deployer")!;
@@ -444,6 +444,259 @@ describe("Optimistic Oracle", () => {
     });
   });
 
+  describe("bond distribution", () => {
+    const BOND_AMOUNT = 100_000_000n; // 100 tokens
+    const SBTC_CONTRACT = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+
+    beforeEach(() => {
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "initialize-question",
+        [Cl.buffer(questionId), Cl.stringUtf8(question), Cl.uint(reward)],
+        deployer
+      );
+    });
+
+    it("returns proposer's bond when no dispute occurs", () => {
+      // Record initial balance
+      const initialBalance = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(wallet1)],
+        wallet1
+      );
+
+      // Propose answer (locks bond)
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "propose-answer",
+        [Cl.buffer(questionId), Cl.uint(1)],
+        wallet1
+      );
+
+      // Wait and resolve
+      simnet.mineEmptyBlocks(150);
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "resolve",
+        [Cl.buffer(questionId)],
+        deployer
+      );
+
+      const finalBalance = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(wallet1)],
+        wallet1
+      );
+
+      // Balance should return to initial (bond returned)
+      expect(finalBalance.result).toStrictEqual(initialBalance.result);
+    });
+
+    it("returns both bonds to disputer when disputer wins", () => {
+      const proposerInitial = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(wallet1)],
+        wallet1
+      );
+
+      const disputerInitial = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(wallet2)],
+        wallet2
+      );
+
+      // Propose NO
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "propose-answer",
+        [Cl.buffer(questionId), Cl.uint(0)],
+        wallet1
+      );
+
+      // Dispute
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "dispute-proposal",
+        [Cl.buffer(questionId)],
+        wallet2
+      );
+
+      // Vote YES (disputer is correct, proposer wrong)
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "vote",
+        [Cl.buffer(questionId), Cl.uint(1), Cl.uint(1_000_000)],
+        wallet3
+      );
+
+      // Wait and resolve
+      simnet.mineEmptyBlocks(300);
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "resolve",
+        [Cl.buffer(questionId)],
+        deployer
+      );
+
+      const proposerFinal = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(wallet1)],
+        wallet1
+      );
+
+      const disputerFinal = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(wallet2)],
+        wallet2
+      );
+
+      // Proposer loses their bond
+      if (!isClarityType(proposerInitial.result, ClarityType.ResponseOk)) {
+        throw new Error("Expected ResponseOk for proposer initial balance");
+      }
+      if (!isClarityType(proposerInitial.result.value, ClarityType.UInt)) {
+        throw new Error("Expected UInt in response for proposer initial balance");
+      }
+
+      if (!isClarityType(proposerFinal.result, ClarityType.ResponseOk)) {
+        throw new Error("Expected ResponseOk for proposer final balance");
+      }
+      if (!isClarityType(proposerFinal.result.value, ClarityType.UInt)) {
+        throw new Error("Expected UInt in response for proposer final balance");
+      }
+
+      expect(proposerFinal.result.value).toStrictEqual(
+        Cl.uint(BigInt(proposerInitial.result.value.value) - BOND_AMOUNT)
+      );
+
+      // Disputer gets their bond back + proposer's bond
+      if (!isClarityType(disputerInitial.result, ClarityType.ResponseOk)) {
+        throw new Error("Expected ResponseOk for disputer initial balance");
+      }
+      if (!isClarityType(disputerInitial.result.value, ClarityType.UInt)) {
+        throw new Error("Expected UInt in response for disputer initial balance");
+      }
+
+      if (!isClarityType(disputerFinal.result, ClarityType.ResponseOk)) {
+        throw new Error("Expected ResponseOk for disputer final balance");
+      }
+      if (!isClarityType(disputerFinal.result.value, ClarityType.UInt)) {
+        throw new Error("Expected UInt in response for disputer final balance");
+      }
+
+      expect(disputerFinal.result.value).toStrictEqual(
+        Cl.uint(BigInt(disputerInitial.result.value.value) + BOND_AMOUNT)
+      );
+    });
+
+    it("returns both bonds to proposer when proposer wins", () => {
+      const proposerInitial = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(wallet1)],
+        wallet1
+      );
+
+      const disputerInitial = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(wallet2)],
+        wallet2
+      );
+
+      // Propose YES
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "propose-answer",
+        [Cl.buffer(questionId), Cl.uint(1)],
+        wallet1
+      );
+
+      // Dispute
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "dispute-proposal",
+        [Cl.buffer(questionId)],
+        wallet2
+      );
+
+      // Vote YES (proposer is correct)
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "vote",
+        [Cl.buffer(questionId), Cl.uint(1), Cl.uint(1_000_000)],
+        wallet3
+      );
+
+      // Wait and resolve
+      simnet.mineEmptyBlocks(300);
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "resolve",
+        [Cl.buffer(questionId)],
+        deployer
+      );
+
+      const proposerFinal = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(wallet1)],
+        wallet1
+      );
+
+      const disputerFinal = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(wallet2)],
+        wallet2
+      );
+
+      // Proposer gets their bond back + disputer's bond
+      if (!isClarityType(proposerInitial.result, ClarityType.ResponseOk)) {
+        throw new Error("Expected ResponseOk for proposer initial balance");
+      }
+      if (!isClarityType(proposerInitial.result.value, ClarityType.UInt)) {
+        throw new Error("Expected UInt in response for proposer initial balance");
+      }
+
+      if (!isClarityType(proposerFinal.result, ClarityType.ResponseOk)) {
+        throw new Error("Expected ResponseOk for proposer final balance");
+      }
+      if (!isClarityType(proposerFinal.result.value, ClarityType.UInt)) {
+        throw new Error("Expected UInt in response for proposer final balance");
+      }
+
+      expect(proposerFinal.result.value).toStrictEqual(
+        Cl.uint(BigInt(proposerInitial.result.value.value) + BOND_AMOUNT)
+      );
+
+      // Disputer loses their bond
+      if (!isClarityType(disputerInitial.result, ClarityType.ResponseOk)) {
+        throw new Error("Expected ResponseOk for disputer initial balance");
+      }
+      if (!isClarityType(disputerInitial.result.value, ClarityType.UInt)) {
+        throw new Error("Expected UInt in response for disputer initial balance");
+      }
+
+      if (!isClarityType(disputerFinal.result, ClarityType.ResponseOk)) {
+        throw new Error("Expected ResponseOk for disputer final balance");
+      }
+      if (!isClarityType(disputerFinal.result.value, ClarityType.UInt)) {
+        throw new Error("Expected UInt in response for disputer final balance");
+      }
+
+      expect(disputerFinal.result.value).toStrictEqual(
+        Cl.uint(BigInt(disputerInitial.result.value.value) - BOND_AMOUNT)
+      );
+    });
+  });
+
   describe("read-only functions", () => {
     beforeEach(() => {
       simnet.callPublicFn(
@@ -474,6 +727,295 @@ describe("Optimistic Oracle", () => {
       );
 
       expect(finalAnswer.result).toBeNone();
+    });
+  });
+
+  describe("voter stake redemption", () => {
+    const VOTER_STAKE = 1_000_000n; // 1 token
+    const SBTC_CONTRACT = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+
+    beforeEach(() => {
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "initialize-question",
+        [Cl.buffer(questionId), Cl.stringUtf8(question), Cl.uint(reward)],
+        deployer
+      );
+    });
+
+    it("allows winning voters to claim stake plus rewards", () => {
+      // Propose NO
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "propose-answer",
+        [Cl.buffer(questionId), Cl.uint(0)],
+        wallet1
+      );
+
+      // Dispute
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "dispute-proposal",
+        [Cl.buffer(questionId)],
+        wallet2
+      );
+
+      const voter3Initial = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(wallet3)],
+        wallet3
+      );
+
+      // Two voters vote YES (winning side)
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "vote",
+        [Cl.buffer(questionId), Cl.uint(1), Cl.uint(VOTER_STAKE)],
+        wallet3
+      );
+
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "vote",
+        [Cl.buffer(questionId), Cl.uint(1), Cl.uint(VOTER_STAKE)],
+        deployer
+      );
+
+      // One voter votes NO (losing side)
+      const loserAddress = accounts.get("wallet_4")!;
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "vote",
+        [Cl.buffer(questionId), Cl.uint(0), Cl.uint(VOTER_STAKE)],
+        loserAddress
+      );
+
+      // Wait and resolve (YES wins)
+      simnet.mineEmptyBlocks(300);
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "resolve",
+        [Cl.buffer(questionId)],
+        deployer
+      );
+
+      // Claim rewards
+      const claimResult = simnet.callPublicFn(
+        "optimistic-oracle",
+        "claim-vote-rewards",
+        [Cl.buffer(questionId)],
+        wallet3
+      );
+
+      expect(claimResult.result).toBeOk(Cl.uint(1_500_000n)); // Stake + half of loser's stake
+
+      const voter3Final = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(wallet3)],
+        wallet3
+      );
+
+      // Voter should have gained 0.5 tokens (their stake back + half of losing stake)
+      if (!isClarityType(voter3Initial.result, ClarityType.ResponseOk)) {
+        throw new Error("Expected ResponseOk");
+      }
+      if (!isClarityType(voter3Initial.result.value, ClarityType.UInt)) {
+        throw new Error("Expected UInt");
+      }
+      if (!isClarityType(voter3Final.result, ClarityType.ResponseOk)) {
+        throw new Error("Expected ResponseOk");
+      }
+      if (!isClarityType(voter3Final.result.value, ClarityType.UInt)) {
+        throw new Error("Expected UInt");
+      }
+
+      expect(voter3Final.result.value).toStrictEqual(
+        Cl.uint(BigInt(voter3Initial.result.value.value) + 500_000n)
+      );
+    });
+
+    it("forfeits stake for losing voters", () => {
+      // Propose NO
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "propose-answer",
+        [Cl.buffer(questionId), Cl.uint(0)],
+        wallet1
+      );
+
+      // Dispute
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "dispute-proposal",
+        [Cl.buffer(questionId)],
+        wallet2
+      );
+
+      // Two voters vote YES (winning side)
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "vote",
+        [Cl.buffer(questionId), Cl.uint(1), Cl.uint(VOTER_STAKE)],
+        wallet3
+      );
+
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "vote",
+        [Cl.buffer(questionId), Cl.uint(1), Cl.uint(VOTER_STAKE)],
+        deployer
+      );
+
+      // One voter votes NO (losing side)
+      const loserAddress = accounts.get("wallet_4")!;
+      const loserInitial = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(loserAddress)],
+        loserAddress
+      );
+
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "vote",
+        [Cl.buffer(questionId), Cl.uint(0), Cl.uint(VOTER_STAKE)],
+        loserAddress
+      );
+
+      // Wait and resolve (YES wins)
+      simnet.mineEmptyBlocks(300);
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "resolve",
+        [Cl.buffer(questionId)],
+        deployer
+      );
+
+      // Loser claims (gets nothing back)
+      const claimResult = simnet.callPublicFn(
+        "optimistic-oracle",
+        "claim-vote-rewards",
+        [Cl.buffer(questionId)],
+        loserAddress
+      );
+
+      expect(claimResult.result).toBeOk(Cl.uint(0)); // No rewards for losers
+
+      const loserFinal = simnet.callReadOnlyFn(
+        SBTC_CONTRACT,
+        "get-balance",
+        [Cl.principal(loserAddress)],
+        loserAddress
+      );
+
+      // Loser's balance should be down by their stake
+      if (!isClarityType(loserInitial.result, ClarityType.ResponseOk)) {
+        throw new Error("Expected ResponseOk");
+      }
+      if (!isClarityType(loserInitial.result.value, ClarityType.UInt)) {
+        throw new Error("Expected UInt");
+      }
+      if (!isClarityType(loserFinal.result, ClarityType.ResponseOk)) {
+        throw new Error("Expected ResponseOk");
+      }
+      if (!isClarityType(loserFinal.result.value, ClarityType.UInt)) {
+        throw new Error("Expected UInt");
+      }
+
+      expect(loserFinal.result.value).toStrictEqual(
+        Cl.uint(BigInt(loserInitial.result.value.value) - VOTER_STAKE)
+      );
+    });
+
+    it("prevents double claiming", () => {
+      // Propose NO
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "propose-answer",
+        [Cl.buffer(questionId), Cl.uint(0)],
+        wallet1
+      );
+
+      // Dispute
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "dispute-proposal",
+        [Cl.buffer(questionId)],
+        wallet2
+      );
+
+      // Vote YES
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "vote",
+        [Cl.buffer(questionId), Cl.uint(1), Cl.uint(VOTER_STAKE)],
+        wallet3
+      );
+
+      // Wait and resolve
+      simnet.mineEmptyBlocks(300);
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "resolve",
+        [Cl.buffer(questionId)],
+        deployer
+      );
+
+      // First claim succeeds
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "claim-vote-rewards",
+        [Cl.buffer(questionId)],
+        wallet3
+      );
+
+      // Second claim fails
+      const secondClaim = simnet.callPublicFn(
+        "optimistic-oracle",
+        "claim-vote-rewards",
+        [Cl.buffer(questionId)],
+        wallet3
+      );
+
+      expect(secondClaim.result).toBeErr(Cl.uint(213)); // ERR-ALREADY-CLAIMED
+    });
+
+    it("prevents claiming before resolution", () => {
+      // Propose NO
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "propose-answer",
+        [Cl.buffer(questionId), Cl.uint(0)],
+        wallet1
+      );
+
+      // Dispute
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "dispute-proposal",
+        [Cl.buffer(questionId)],
+        wallet2
+      );
+
+      // Vote YES
+      simnet.callPublicFn(
+        "optimistic-oracle",
+        "vote",
+        [Cl.buffer(questionId), Cl.uint(1), Cl.uint(VOTER_STAKE)],
+        wallet3
+      );
+
+      // Try to claim before resolution
+      const claimResult = simnet.callPublicFn(
+        "optimistic-oracle",
+        "claim-vote-rewards",
+        [Cl.buffer(questionId)],
+        wallet3
+      );
+
+      expect(claimResult.result).toBeErr(Cl.uint(212)); // ERR-NOT-RESOLVED
     });
   });
 });

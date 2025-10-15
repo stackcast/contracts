@@ -236,10 +236,14 @@
 )
   (begin
     (asserts! (is-eq (len position-ids) (len amounts)) ERR-INVALID-AMOUNT)
-    (ok (fold safe-batch-transfer-fold
-      (map create-transfer-params position-ids amounts)
-      { from: from, to: to, success: true }
-    ))
+    (match
+      (fold safe-batch-transfer-fold
+        (map create-transfer-params position-ids amounts)
+        (ok { from: from, to: to })
+      )
+      final-state (ok true)
+      transfer-error (err transfer-error)
+    )
   )
 )
 
@@ -248,17 +252,22 @@
   { position-id: position-id, amount: amount }
 )
 
-;; Fold helper for batch transfers
+;; Fold helper for batch transfers - returns response to propagate errors
 (define-private (safe-batch-transfer-fold
   (params { position-id: (buff 32), amount: uint })
-  (state { from: principal, to: principal, success: bool })
+  (state (response { from: principal, to: principal } uint))
 )
-  (if (get success state)
-    (match (safe-transfer-from (get from state) (get to state) (get position-id params) (get amount params))
-      success state
-      error (merge state { success: false })
-    )
-    state
+  (match state
+    success-state
+      (match (safe-transfer-from
+               (get from success-state)
+               (get to success-state)
+               (get position-id params)
+               (get amount params))
+        transfer-success (ok success-state)
+        transfer-failure (err transfer-failure)
+      )
+    existing-error (err existing-error)
   )
 )
 

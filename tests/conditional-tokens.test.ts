@@ -741,6 +741,121 @@ describe("Conditional Tokens Framework", () => {
     });
   });
 
+  describe("safe-batch-transfer-from", () => {
+    let conditionId: Uint8Array;
+    let yesPositionId: Uint8Array;
+    let noPositionId: Uint8Array;
+    const splitAmount = 10_000_000;
+
+    beforeEach(() => {
+      const marketId = new Uint8Array(32).fill(60);
+      conditionId = initializeMarket(marketId);
+      yesPositionId = getPositionId(conditionId, 0);
+      noPositionId = getPositionId(conditionId, 1);
+
+      simnet.callPublicFn(
+        "conditional-tokens",
+        "split-position",
+        [Cl.uint(splitAmount), Cl.buffer(conditionId)],
+        wallet1
+      );
+    });
+
+    it("successfully batch transfers multiple positions", () => {
+      const transferAmount = 1_000_000;
+
+      const result = simnet.callPublicFn(
+        "conditional-tokens",
+        "safe-batch-transfer-from",
+        [
+          Cl.principal(wallet1),
+          Cl.principal(wallet2),
+          Cl.list([Cl.buffer(yesPositionId), Cl.buffer(noPositionId)]),
+          Cl.list([Cl.uint(transferAmount), Cl.uint(transferAmount)]),
+        ],
+        wallet1
+      );
+
+      expect(result.result).toBeOk(Cl.bool(true));
+
+      // Verify both positions transferred
+      const yesBalance = simnet.callReadOnlyFn(
+        "conditional-tokens",
+        "balance-of",
+        [Cl.principal(wallet2), Cl.buffer(yesPositionId)],
+        wallet2
+      );
+      expect(yesBalance.result).toStrictEqual(Cl.uint(transferAmount));
+
+      const noBalance = simnet.callReadOnlyFn(
+        "conditional-tokens",
+        "balance-of",
+        [Cl.principal(wallet2), Cl.buffer(noPositionId)],
+        wallet2
+      );
+      expect(noBalance.result).toStrictEqual(Cl.uint(transferAmount));
+    });
+
+    it("propagates error when any transfer fails (insufficient balance)", () => {
+      // Try to transfer more than available
+      const result = simnet.callPublicFn(
+        "conditional-tokens",
+        "safe-batch-transfer-from",
+        [
+          Cl.principal(wallet1),
+          Cl.principal(wallet2),
+          Cl.list([Cl.buffer(yesPositionId), Cl.buffer(noPositionId)]),
+          Cl.list([Cl.uint(splitAmount + 1), Cl.uint(1_000_000)]), // First fails
+        ],
+        wallet1
+      );
+
+      expect(result.result).toBeErr(Cl.uint(104)); // ERR-INSUFFICIENT-BALANCE
+    });
+
+    it("stops on first error and doesn't process remaining transfers", () => {
+      // First transfer succeeds, second fails
+      const result = simnet.callPublicFn(
+        "conditional-tokens",
+        "safe-batch-transfer-from",
+        [
+          Cl.principal(wallet1),
+          Cl.principal(wallet2),
+          Cl.list([Cl.buffer(yesPositionId), Cl.buffer(noPositionId)]),
+          Cl.list([Cl.uint(1_000_000), Cl.uint(splitAmount + 1)]), // Second fails
+        ],
+        wallet1
+      );
+
+      expect(result.result).toBeErr(Cl.uint(104)); // ERR-INSUFFICIENT-BALANCE
+
+      // Verify first transfer was rolled back (atomicity)
+      const yesBalance = simnet.callReadOnlyFn(
+        "conditional-tokens",
+        "balance-of",
+        [Cl.principal(wallet2), Cl.buffer(yesPositionId)],
+        wallet2
+      );
+      expect(yesBalance.result).toStrictEqual(Cl.uint(0)); // No partial transfer
+    });
+
+    it("fails when position-ids and amounts length mismatch", () => {
+      const result = simnet.callPublicFn(
+        "conditional-tokens",
+        "safe-batch-transfer-from",
+        [
+          Cl.principal(wallet1),
+          Cl.principal(wallet2),
+          Cl.list([Cl.buffer(yesPositionId), Cl.buffer(noPositionId)]),
+          Cl.list([Cl.uint(1_000_000)]), // Length mismatch
+        ],
+        wallet1
+      );
+
+      expect(result.result).toBeErr(Cl.uint(107)); // ERR-INVALID-AMOUNT
+    });
+  });
+
   describe("Edge Cases & Security", () => {
     let conditionId: Uint8Array;
     let marketId: Uint8Array;

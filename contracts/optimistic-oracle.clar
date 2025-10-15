@@ -336,27 +336,49 @@
         (let
           (
             (dispute (unwrap-panic (map-get? disputes { question-id: question-id })))
+            (proposal-bond (get bond proposal))
+            (dispute-bond (get bond dispute))
           )
-          ;; If disputer was correct, reward disputer with proposer's bond
+          ;; If disputer was correct, return disputer's stake and award proposer's bond
           (if (not (is-eq final-answer (get proposed-answer proposal)))
-            (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
-              BOND_AMOUNT
-              tx-sender
-              (get disputer dispute)
-              none
-            )))
-            ;; If proposer was correct, reward proposer with disputer's bond
-            (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
-              BOND_AMOUNT
-              tx-sender
-              (get proposer proposal)
-              none
-            )))
+            (begin
+              ;; Return disputer's own stake
+              (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+                dispute-bond
+                tx-sender
+                (get disputer dispute)
+                none
+              )))
+              ;; Award slashed proposer's bond to disputer
+              (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+                proposal-bond
+                tx-sender
+                (get disputer dispute)
+                none
+              )))
+            )
+            ;; If proposer was correct, return proposer's stake and award disputer's bond
+            (begin
+              ;; Return proposer's own stake
+              (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+                proposal-bond
+                tx-sender
+                (get proposer proposal)
+                none
+              )))
+              ;; Award slashed disputer's bond to proposer
+              (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+                dispute-bond
+                tx-sender
+                (get proposer proposal)
+                none
+              )))
+            )
           )
         )
         ;; If no dispute, return bond to proposer
         (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
-          BOND_AMOUNT
+          (get bond proposal)
           tx-sender
           (get proposer proposal)
           none

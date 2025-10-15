@@ -15,6 +15,9 @@
 (define-constant ERR-INSUFFICIENT-BOND (err u209))
 (define-constant ERR-ALREADY-VOTED (err u210))
 (define-constant ERR-VOTING-NOT-ACTIVE (err u211))
+(define-constant ERR-NOT-RESOLVED (err u212))
+(define-constant ERR-ALREADY-CLAIMED (err u213))
+(define-constant ERR-NO-STAKE (err u214))
 
 ;; Constants
 (define-constant CHALLENGE_WINDOW u144) ;; ~24 hours in blocks (10min blocks)
@@ -83,6 +86,12 @@
     final-answer: uint,
     resolved-at: uint
   }
+)
+
+;; Track stake claims
+(define-map stake-claims
+  { question-id: (buff 32), voter: principal }
+  { claimed: bool }
 )
 
 ;; Governance token for voting/bonding
@@ -429,5 +438,79 @@
   (match (map-get? resolutions { question-id: question-id })
     resolution (some (get final-answer resolution))
     none
+  )
+)
+
+;; Claim vote rewards after resolution
+(define-public (claim-vote-rewards (question-id (buff 32)))
+  (let
+    (
+      (claimer tx-sender)
+      (question (unwrap! (map-get? questions { question-id: question-id }) ERR-INVALID-QUESTION))
+      (resolution (unwrap! (map-get? resolutions { question-id: question-id }) ERR-NOT-RESOLVED))
+      (vote-data (unwrap! (map-get? votes { question-id: question-id, voter: claimer }) ERR-NO-STAKE))
+      (tally (unwrap! (map-get? vote-tallies { question-id: question-id }) ERR-NOT-DISPUTED))
+      (final-answer (get final-answer resolution))
+      (voter-vote (get vote vote-data))
+      (voter-stake (get stake vote-data))
+    )
+    ;; Validate input and state
+    (asserts! (is-eq (len question-id) u32) ERR-INVALID-QUESTION)
+    (asserts! (is-eq (get state question) STATE-RESOLVED) ERR-NOT-RESOLVED)
+    (asserts! (is-none (map-get? stake-claims { question-id: question-id, voter: claimer })) ERR-ALREADY-CLAIMED)
+
+    ;; Mark as claimed
+    (map-set stake-claims
+      { question-id: question-id, voter: claimer }
+      { claimed: true }
+    )
+
+    (let
+      (
+        (yes-total (get yes-votes tally))
+        (no-total (get no-votes tally))
+        (winning-total (if (is-eq final-answer u1) yes-total no-total))
+        (losing-total (if (is-eq final-answer u1) no-total yes-total))
+        (voter-won (is-eq voter-vote final-answer))
+      )
+      (if voter-won
+        ;; Winner: return stake + proportional share of losing stakes
+        (let
+          (
+            (reward-share (if (> winning-total u0)
+              (/ (* voter-stake losing-total) winning-total)
+              u0
+            ))
+            (total-reward (+ voter-stake reward-share))
+          )
+          ;; Transfer rewards to voter
+          (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+            total-reward
+            tx-sender
+            claimer
+            none
+          )))
+          (print {
+            event: "vote-rewards-claimed",
+            question-id: question-id,
+            voter: claimer,
+            stake-returned: voter-stake,
+            reward: reward-share,
+            total: total-reward
+          })
+          (ok total-reward)
+        )
+        ;; Loser: stake is forfeited (already distributed to winners)
+        (begin
+          (print {
+            event: "vote-stake-forfeited",
+            question-id: question-id,
+            voter: claimer,
+            stake-lost: voter-stake
+          })
+          (ok u0)
+        )
+      )
+    )
   )
 )

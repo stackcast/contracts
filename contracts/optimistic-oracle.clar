@@ -85,8 +85,10 @@
   }
 )
 
-;; Mock governance token for voting (in production, use real token)
-(define-fungible-token oracle-token)
+;; Governance token for voting/bonding
+;; Uses sBTC as the bond token (same as collateral in CTF)
+;; In production, this could be replaced with a dedicated governance token
+;; Note: The sBTC contract address is hardcoded below in transfer calls
 
 ;; Initialize a new question
 (define-public (initialize-question
@@ -128,8 +130,13 @@
     (asserts! (or (is-eq proposed-answer u0) (is-eq proposed-answer u1)) ERR-INVALID-QUESTION)
     (asserts! (is-none (map-get? proposals { question-id: question-id })) ERR-ALREADY-PROPOSED)
 
-    ;; Lock proposer's bond (in production, transfer from SIP-010 token)
-    (try! (ft-mint? oracle-token BOND_AMOUNT tx-sender))
+    ;; Lock proposer's bond (transfer sBTC to contract)
+    (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+      BOND_AMOUNT
+      tx-sender
+      (as-contract tx-sender)
+      none
+    ))
 
     (map-set proposals
       { question-id: question-id }
@@ -166,8 +173,13 @@
       ERR-CHALLENGE-WINDOW-CLOSED
     )
 
-    ;; Lock disputer's bond
-    (try! (ft-mint? oracle-token BOND_AMOUNT tx-sender))
+    ;; Lock disputer's bond (transfer sBTC to contract)
+    (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+      BOND_AMOUNT
+      tx-sender
+      (as-contract tx-sender)
+      none
+    ))
 
     ;; Update question state to DISPUTED
     (map-set questions
@@ -227,8 +239,13 @@
     (asserts! (< tenure-height (get voting-ends tally)) ERR-CHALLENGE-WINDOW-CLOSED)
     (asserts! (is-none (map-get? votes { question-id: question-id, voter: tx-sender })) ERR-ALREADY-VOTED)
 
-    ;; Lock voter's stake
-    (try! (ft-mint? oracle-token stake tx-sender))
+    ;; Lock voter's stake (transfer sBTC to contract)
+    (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+      stake
+      tx-sender
+      (as-contract tx-sender)
+      none
+    ))
 
     ;; Record vote
     (map-set votes
@@ -314,20 +331,36 @@
         (merge question { state: STATE-RESOLVED })
       )
 
-      ;; Handle rewards/slashing (simplified - in production, distribute to correct voters)
+      ;; Handle rewards/slashing
       (if (is-some (map-get? disputes { question-id: question-id }))
         (let
           (
             (dispute (unwrap-panic (map-get? disputes { question-id: question-id })))
           )
-          ;; If disputer was correct, slash proposer
+          ;; If disputer was correct, reward disputer with proposer's bond
           (if (not (is-eq final-answer (get proposed-answer proposal)))
-            (try! (ft-burn? oracle-token BOND_AMOUNT (get proposer proposal)))
-            ;; If proposer was correct, slash disputer
-            (try! (ft-burn? oracle-token BOND_AMOUNT (get disputer dispute)))
+            (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+              BOND_AMOUNT
+              tx-sender
+              (get disputer dispute)
+              none
+            )))
+            ;; If proposer was correct, reward proposer with disputer's bond
+            (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+              BOND_AMOUNT
+              tx-sender
+              (get proposer proposal)
+              none
+            )))
           )
         )
-        true
+        ;; If no dispute, return bond to proposer
+        (try! (as-contract (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token transfer
+          BOND_AMOUNT
+          tx-sender
+          (get proposer proposal)
+          none
+        )))
       )
 
       (print {

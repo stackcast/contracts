@@ -1,4 +1,4 @@
-import { Cl } from "@stacks/transactions";
+import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
 import { hexToBytes } from "@stacks/common";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -23,14 +23,18 @@ describe("Conditional Tokens Framework", () => {
       deployer
     );
 
-    // The result should be (ok <buff 32>)
-    expect(result.result).toBeOk(expect.anything());
-
     // Extract the buffer value from the ok response - BufferCV.value is a hex string
-    const okResult = result.result as any;
-    const bufferCV = okResult.value;
-    // Convert hex string to Uint8Array
-    const hexString = bufferCV.value.replace(/^0x/, "");
+    if (!isClarityType(result.result, ClarityType.ResponseOk)) {
+      throw new Error(`Expected ResponseOk, got ${result.result.type}`);
+    }
+
+    if (!isClarityType(result.result.value, ClarityType.Buffer)) {
+      throw new Error(
+        `Expected Buffer in response, got ${result.result.value.type}`
+      );
+    }
+
+    const hexString = result.result.value.value.replace(/^0x/, "");
     return hexToBytes(hexString);
   }
 
@@ -45,9 +49,12 @@ describe("Conditional Tokens Framework", () => {
       [Cl.buffer(conditionId), Cl.uint(outcomeIndex)],
       deployer
     );
-    // Result is a BufferCV - value is a hex string
-    const bufferCV = result.result as any;
-    const hexString = bufferCV.value.replace(/^0x/, "");
+
+    if (!isClarityType(result.result, ClarityType.Buffer)) {
+      throw new Error(`Expected Buffer, got ${result.result.type}`);
+    }
+
+    const hexString = result.result.value.replace(/^0x/, "");
     return hexToBytes(hexString);
   }
 
@@ -438,7 +445,9 @@ describe("Conditional Tokens Framework", () => {
         [Cl.principal(wallet1), Cl.buffer(yesPositionId)],
         wallet1
       );
-      expect(senderBalance.result).toStrictEqual(Cl.uint(splitAmount - transferAmount));
+      expect(senderBalance.result).toStrictEqual(
+        Cl.uint(splitAmount - transferAmount)
+      );
 
       // Verify receiver balance increased
       const receiverBalance = simnet.callReadOnlyFn(
@@ -564,7 +573,16 @@ describe("Conditional Tokens Framework", () => {
         deployer
       );
 
-      expect(condition.result).toBeSome(expect.anything());
+      if (!isClarityType(condition.result, ClarityType.OptionalSome)) {
+        throw new Error(`Expected OptionalSome for condition, got ${condition.result.type}`);
+      }
+
+      if (!isClarityType(condition.result.value, ClarityType.Tuple)) {
+        throw new Error(`Expected Tuple in condition, got ${condition.result.value.type}`);
+      }
+
+      const conditionData = condition.result.value.value;
+      expect(conditionData['resolved']).toBeBool(true);
     });
 
     it("prevents non-oracle from reporting payout", () => {

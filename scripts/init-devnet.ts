@@ -75,6 +75,30 @@ async function promptEnvironment(): Promise<"dev" | "prod"> {
   });
 }
 
+// Prompt user for deployment options
+async function promptDeploymentOptions(): Promise<"all" | "hackathon"> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(
+      "\n🎯 What would you like to deploy?\n  1) All demo markets\n  2) Hackathon prediction (fun!) 🎉\n\nEnter choice (1 or 2): ",
+      (answer) => {
+        rl.close();
+        if (answer.trim() === "2") {
+          console.log("✅ Selected: Hackathon prediction only 🚀\n");
+          resolve("hackathon");
+        } else {
+          console.log("✅ Selected: All demo markets\n");
+          resolve("all");
+        }
+      }
+    );
+  });
+}
+
 // If no environment specified, prompt user
 if (!envArg) {
   selectedEnv = await promptEnvironment();
@@ -166,6 +190,13 @@ const MARKETS = [
   },
 ];
 
+// 🎉 Special hackathon market (for fun!)
+const HACKATHON_MARKET = {
+  id: Buffer.alloc(32, 99), // Special ID 99
+  question: "Will StackCast win the Stacks Vibe Coding Hackathon? 🚀",
+  reward: 1000_000_000n, // 1000 sBTC (HUGE reward for the memes)
+};
+
 // Helper to convert buffer to hex string with 0x prefix
 function toHex(buf: Buffer): string {
   return "0x" + buf.toString("hex");
@@ -239,7 +270,15 @@ async function main() {
   if (selectedEnv === "dev") {
     console.log(`💰 Wallets already have 1000 sBTC each (from Devnet.toml)\n`);
   }
-  console.log(`📊 Initializing ${MARKETS.length} prediction markets...\n`);
+
+  // Ask what to deploy
+  const deploymentChoice = await promptDeploymentOptions();
+
+  // Select markets to deploy
+  const marketsToInit =
+    deploymentChoice === "hackathon" ? [HACKATHON_MARKET] : MARKETS;
+
+  console.log(`📊 Initializing ${marketsToInit.length} prediction market${marketsToInit.length > 1 ? "s" : ""}...\n`);
 
   const SERVER_URL =
     process.env.SERVER_URL ||
@@ -251,11 +290,11 @@ async function main() {
   const conditionIds: string[] = [];
 
   try {
-    // Loop through all markets
-    for (let i = 0; i < MARKETS.length; i++) {
-      const market = MARKETS[i];
+    // Loop through selected markets
+    for (let i = 0; i < marketsToInit.length; i++) {
+      const market = marketsToInit[i];
       console.log(
-        `\n📈 Market ${i + 1}/${MARKETS.length}: "${market.question}"`
+        `\n📈 Market ${i + 1}/${marketsToInit.length}: "${market.question}"`
       );
       console.log(`   Market ID: ${toHex(market.id)}`);
 
@@ -309,11 +348,17 @@ async function main() {
       }
     }
 
-    console.log("\n✅ Devnet initialization complete!\n");
+    console.log("\n✅ Initialization complete!\n");
     console.log("📝 What was set up:");
-    console.log(`   • ${MARKETS.length} prediction markets created`);
+    console.log(`   • ${marketsToInit.length} prediction market${marketsToInit.length > 1 ? "s" : ""} created`);
     console.log("   • All markets registered in oracle and oracle-adapter");
     console.log("   • Ready for users to split positions and trade\n");
+
+    if (deploymentChoice === "hackathon") {
+      console.log("🎉 Hackathon market deployed!");
+      console.log('   Question: "Will StackCast win the Stacks Vibe Coding Hackathon? 🚀"');
+      console.log("   Reward: 1000 sBTC (for the memes)\n");
+    }
 
     console.log("🌐 Next steps:");
     console.log("   1. Split positions using condition IDs from above");

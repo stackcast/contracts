@@ -4,6 +4,7 @@
 .cache/**
 history.txt
 .env
+.env.prod
 
 logs
 *.log

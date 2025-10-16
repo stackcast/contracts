@@ -1,20 +1,40 @@
 #!/usr/bin/env tsx
 /**
- * StackCast Devnet Initialization Script
+ * StackCast Environment Initialization Script
  *
- * Sets up demo markets and initial trading positions on devnet.
- * Wallets already have sBTC from Devnet.toml config (1000 sBTC each).
+ * Sets up demo markets and initial trading positions on devnet or testnet.
+ * Wallets already have sBTC from Devnet.toml config (1000 sBTC each) for devnet.
  *
  * USAGE:
+ *   For devnet:
  *   1. Start devnet: clarinet devnet start
  *   2. Wait for contracts to deploy (~30 seconds)
  *   3. Run: npx tsx scripts/init-devnet.ts
+ *
+ *   For testnet:
+ *   1. Deploy to testnet: clarinet deployments apply -p deployments/default.testnet-plan.yaml
+ *   2. Run: ENVIRONMENT=prod npx tsx scripts/init-devnet.ts
  */
 
 import { config } from "dotenv";
-config(); // Load .env file
+import * as readline from "readline";
 
-import { STACKS_DEVNET } from "@stacks/network";
+// Determine environment from ENV variable or prompt
+const envArg = process.env.ENVIRONMENT;
+let selectedEnv: "dev" | "prod" = "dev";
+
+if (envArg === "prod" || envArg === "production" || envArg === "testnet") {
+  selectedEnv = "prod";
+  config({ path: ".env.prod" }); // Load .env.prod file
+} else if (envArg === "dev" || envArg === "devnet" || envArg === "development") {
+  selectedEnv = "dev";
+  config(); // Load .env file
+} else if (!envArg) {
+  // Will prompt user below
+  config(); // Default to .env for now
+}
+
+import { STACKS_DEVNET, STACKS_TESTNET } from "@stacks/network";
 import {
   AnchorMode,
   PostConditionMode,
@@ -27,8 +47,45 @@ import {
   cvToValue,
 } from "@stacks/transactions";
 
-// Devnet configuration
-const network = STACKS_DEVNET;
+// Prompt user for environment if not specified
+async function promptEnvironment(): Promise<"dev" | "prod"> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(
+      "\n🔧 Select environment:\n  1) Devnet (local)\n  2) Testnet (production)\n\nEnter choice (1 or 2): ",
+      (answer) => {
+        rl.close();
+        if (answer.trim() === "2") {
+          console.log("✅ Selected: Testnet (production)\n");
+          resolve("prod");
+        } else {
+          console.log("✅ Selected: Devnet (local)\n");
+          resolve("dev");
+        }
+      }
+    );
+  });
+}
+
+// If no environment specified, prompt user
+if (!envArg) {
+  selectedEnv = await promptEnvironment();
+  if (selectedEnv === "prod") {
+    config({ path: ".env.prod", override: true });
+  }
+}
+
+// Network configuration based on environment
+const network = selectedEnv === "prod" ? STACKS_TESTNET : STACKS_DEVNET;
+const DEPLOYER =
+  selectedEnv === "prod"
+    ? "ST3MFDEP2CKXVHYHW0TSAAD430R95YTVBW7QHZN9F"
+    : "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM";
+const TX_WAIT_TIME = selectedEnv === "prod" ? 30000 : 5000; // 30s for testnet, 5s for devnet
 
 function mustEnv(name: string): string {
   const value = process.env[name];
@@ -38,73 +95,70 @@ function mustEnv(name: string): string {
   return value;
 }
 
-// Devnet test account keys (from environment variables)
+// Deployer key from environment variables
 const DEPLOYER_KEY = mustEnv("DEPLOYER_KEY");
-
-// Addresses
-const DEPLOYER = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM";
 
 // Market data
 const MARKETS = [
   {
     id: Buffer.alloc(32, 1),
     question: "Will ETH hit $10k by Dec 31, 2025?",
-    reward: 1_000_000_000n, // 1000 sBTC
+    reward: 25_000_000n, // 25 sBTC
   },
   {
     id: Buffer.alloc(32, 2),
     question: "Will Bitcoin reach $150k by end of 2025?",
-    reward: 1_500_000_000n, // 1500 sBTC
+    reward: 30_000_000n, // 30 sBTC
   },
   {
     id: Buffer.alloc(32, 3),
     question: "Will Apple stock hit $250 by July 2025?",
-    reward: 800_000_000n, // 800 sBTC
+    reward: 20_000_000n, // 20 sBTC
   },
   {
     id: Buffer.alloc(32, 4),
     question: "Will a major AI lab release AGI by 2026?",
-    reward: 2_000_000_000n, // 2000 sBTC
+    reward: 50_000_000n, // 50 sBTC (controversial, needs higher reward)
   },
   {
     id: Buffer.alloc(32, 5),
     question: "Will Trump win the 2028 US Presidential Election?",
-    reward: 1_200_000_000n, // 1200 sBTC
+    reward: 40_000_000n, // 40 sBTC
   },
   {
     id: Buffer.alloc(32, 6),
     question: "Will Tesla's stock price exceed $500 in 2025?",
-    reward: 900_000_000n, // 900 sBTC
+    reward: 20_000_000n, // 20 sBTC
   },
   {
     id: Buffer.alloc(32, 7),
     question: "Will the Fed cut interest rates below 3% by Dec 2025?",
-    reward: 1_100_000_000n, // 1100 sBTC
+    reward: 25_000_000n, // 25 sBTC
   },
   {
     id: Buffer.alloc(32, 8),
     question: "Will Nvidia market cap exceed $5 trillion in 2025?",
-    reward: 1_300_000_000n, // 1300 sBTC
+    reward: 25_000_000n, // 25 sBTC
   },
   {
     id: Buffer.alloc(32, 9),
     question: "Will there be a manned mission to Mars by 2030?",
-    reward: 2_500_000_000n, // 2500 sBTC
+    reward: 50_000_000n, // 50 sBTC (long-term, harder to verify)
   },
   {
     id: Buffer.alloc(32, 10),
     question: "Will Solana price surpass $500 by end of 2025?",
-    reward: 1_000_000_000n, // 1000 sBTC
+    reward: 20_000_000n, // 20 sBTC
   },
   {
     id: Buffer.alloc(32, 11),
     question: "Will global inflation drop below 2% by 2026?",
-    reward: 700_000_000n, // 700 sBTC
+    reward: 15_000_000n, // 15 sBTC
   },
   {
     id: Buffer.alloc(32, 12),
     question: "Will a quantum computer break RSA-2048 by 2027?",
-    reward: 3_000_000_000n, // 3000 sBTC
+    reward: 100_000_000n, // 100 sBTC (highly technical, max reward)
   },
 ];
 
@@ -119,7 +173,7 @@ async function sleep(ms: number) {
 
 async function waitForTx(txid: string) {
   console.log(`   ⏳ TX: ${txid}`);
-  await sleep(5000); // Wait for block confirmation
+  await sleep(TX_WAIT_TIME); // Wait for block confirmation
 }
 
 async function initializeMarket(
@@ -174,12 +228,17 @@ async function getConditionId(marketId: Buffer): Promise<string> {
 }
 
 async function main() {
-  console.log("\n🚀 StackCast Devnet Initialization\n");
+  const envName = selectedEnv === "prod" ? "Testnet (Production)" : "Devnet (Local)";
+  console.log(`\n🚀 StackCast ${envName} Initialization\n`);
   console.log(`📡 Network: ${network.client.baseUrl}`);
-  console.log(`💰 Wallets already have 1000 sBTC each (from Devnet.toml)\n`);
+  if (selectedEnv === "dev") {
+    console.log(`💰 Wallets already have 1000 sBTC each (from Devnet.toml)\n`);
+  }
   console.log(`📊 Initializing ${MARKETS.length} prediction markets...\n`);
 
-  const SERVER_URL = process.env.SERVER_URL || "http://localhost:3000";
+  const SERVER_URL =
+    process.env.SERVER_URL ||
+    (selectedEnv === "prod" ? "https://api.stackcast.co" : "http://localhost:3000");
   const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
 
   const conditionIds: string[] = [];

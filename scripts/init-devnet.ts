@@ -26,7 +26,11 @@ let selectedEnv: "dev" | "prod" = "dev";
 if (envArg === "prod" || envArg === "production" || envArg === "testnet") {
   selectedEnv = "prod";
   config({ path: ".env.prod" }); // Load .env.prod file
-} else if (envArg === "dev" || envArg === "devnet" || envArg === "development") {
+} else if (
+  envArg === "dev" ||
+  envArg === "devnet" ||
+  envArg === "development"
+) {
   selectedEnv = "dev";
   config(); // Load .env file
 } else if (!envArg) {
@@ -40,11 +44,11 @@ import {
   PostConditionMode,
   broadcastTransaction,
   bufferCV,
+  cvToValue,
+  fetchCallReadOnlyFunction,
   makeContractCall,
   stringUtf8CV,
   uintCV,
-  fetchCallReadOnlyFunction,
-  cvToValue,
 } from "@stacks/transactions";
 
 // Prompt user for environment if not specified
@@ -217,7 +221,7 @@ async function getConditionId(marketId: Buffer): Promise<string> {
 
     const value = cvToValue(result);
 
-    if (value && value.value && typeof value.value === 'string') {
+    if (value && value.value && typeof value.value === "string") {
       return value.value;
     }
 
@@ -228,7 +232,8 @@ async function getConditionId(marketId: Buffer): Promise<string> {
 }
 
 async function main() {
-  const envName = selectedEnv === "prod" ? "Testnet (Production)" : "Devnet (Local)";
+  const envName =
+    selectedEnv === "prod" ? "Testnet (Production)" : "Devnet (Local)";
   console.log(`\n🚀 StackCast ${envName} Initialization\n`);
   console.log(`📡 Network: ${network.client.baseUrl}`);
   if (selectedEnv === "dev") {
@@ -238,7 +243,9 @@ async function main() {
 
   const SERVER_URL =
     process.env.SERVER_URL ||
-    (selectedEnv === "prod" ? "https://api.stackcast.co" : "http://localhost:3000");
+    (selectedEnv === "prod"
+      ? "https://api.stackcast.xyz"
+      : "http://localhost:3000");
   const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
 
   const conditionIds: string[] = [];
@@ -247,7 +254,9 @@ async function main() {
     // Loop through all markets
     for (let i = 0; i < MARKETS.length; i++) {
       const market = MARKETS[i];
-      console.log(`\n📈 Market ${i + 1}/${MARKETS.length}: "${market.question}"`);
+      console.log(
+        `\n📈 Market ${i + 1}/${MARKETS.length}: "${market.question}"`
+      );
       console.log(`   Market ID: ${toHex(market.id)}`);
 
       // Step 1: Initialize market on-chain
@@ -290,13 +299,13 @@ async function main() {
           }
         } catch (error: any) {
           if (i === 0) {
-            console.log(
-              `   ⚠️  Backend server not running: ${error.message}`
-            );
+            console.log(`   ⚠️  Backend server not running: ${error.message}`);
           }
         }
       } else if (i === 0) {
-        console.log("   ⚠️  ADMIN_API_KEY not set, skipping backend initialization");
+        console.log(
+          "   ⚠️  ADMIN_API_KEY not set, skipping backend initialization"
+        );
       }
     }
 
@@ -314,7 +323,9 @@ async function main() {
     console.log("   5. Connect wallet and trade!\n");
 
     console.log("📋 Split position command example (first market):");
-    console.log(`   clarinet console --exec "(contract-call? .conditional-tokens split-position u100000000 ${conditionIds[0]})"`);
+    console.log(
+      `   clarinet console --exec "(contract-call? .conditional-tokens split-position u100000000 ${conditionIds[0]})"`
+    );
     console.log("");
   } catch (error: any) {
     console.error("\n❌ Error:", error.message || error);

@@ -45,11 +45,68 @@ const DEPLOYER_KEY = mustEnv("DEPLOYER_KEY");
 const DEPLOYER = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM";
 
 // Market data
-const QUESTION_1_TEXT = "Will ETH hit $10k by Dec 31, 2025?";
-
-// Generate IDs - market-id and question-id are the same in oracle-adapter.clar
-// Using a simple 32-byte buffer filled with 1s for the first market
-const MARKET_1_ID = Buffer.alloc(32, 1);
+const MARKETS = [
+  {
+    id: Buffer.alloc(32, 1),
+    question: "Will ETH hit $10k by Dec 31, 2025?",
+    reward: 1_000_000_000n, // 1000 sBTC
+  },
+  {
+    id: Buffer.alloc(32, 2),
+    question: "Will Bitcoin reach $150k by end of 2025?",
+    reward: 1_500_000_000n, // 1500 sBTC
+  },
+  {
+    id: Buffer.alloc(32, 3),
+    question: "Will Apple stock hit $250 by July 2025?",
+    reward: 800_000_000n, // 800 sBTC
+  },
+  {
+    id: Buffer.alloc(32, 4),
+    question: "Will a major AI lab release AGI by 2026?",
+    reward: 2_000_000_000n, // 2000 sBTC
+  },
+  {
+    id: Buffer.alloc(32, 5),
+    question: "Will Trump win the 2028 US Presidential Election?",
+    reward: 1_200_000_000n, // 1200 sBTC
+  },
+  {
+    id: Buffer.alloc(32, 6),
+    question: "Will Tesla's stock price exceed $500 in 2025?",
+    reward: 900_000_000n, // 900 sBTC
+  },
+  {
+    id: Buffer.alloc(32, 7),
+    question: "Will the Fed cut interest rates below 3% by Dec 2025?",
+    reward: 1_100_000_000n, // 1100 sBTC
+  },
+  {
+    id: Buffer.alloc(32, 8),
+    question: "Will Nvidia market cap exceed $5 trillion in 2025?",
+    reward: 1_300_000_000n, // 1300 sBTC
+  },
+  {
+    id: Buffer.alloc(32, 9),
+    question: "Will there be a manned mission to Mars by 2030?",
+    reward: 2_500_000_000n, // 2500 sBTC
+  },
+  {
+    id: Buffer.alloc(32, 10),
+    question: "Will Solana price surpass $500 by end of 2025?",
+    reward: 1_000_000_000n, // 1000 sBTC
+  },
+  {
+    id: Buffer.alloc(32, 11),
+    question: "Will global inflation drop below 2% by 2026?",
+    reward: 700_000_000n, // 700 sBTC
+  },
+  {
+    id: Buffer.alloc(32, 12),
+    question: "Will a quantum computer break RSA-2048 by 2027?",
+    reward: 3_000_000_000n, // 3000 sBTC
+  },
+];
 
 // Helper to convert buffer to hex string with 0x prefix
 function toHex(buf: Buffer): string {
@@ -120,83 +177,85 @@ async function main() {
   console.log("\n🚀 StackCast Devnet Initialization\n");
   console.log(`📡 Network: ${network.client.baseUrl}`);
   console.log(`💰 Wallets already have 1000 sBTC each (from Devnet.toml)\n`);
+  console.log(`📊 Initializing ${MARKETS.length} prediction markets...\n`);
 
-  console.log("🔑 Generated IDs:");
-  console.log(`   Market ID:    ${toHex(MARKET_1_ID)}`);
+  const SERVER_URL = process.env.SERVER_URL || "http://localhost:3000";
+  const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
+
+  const conditionIds: string[] = [];
 
   try {
-    // Step 1: Create demo market
-    console.log("\n📊 Step 1: Creating demo market");
-    console.log(`   Market: "${QUESTION_1_TEXT}"`);
+    // Loop through all markets
+    for (let i = 0; i < MARKETS.length; i++) {
+      const market = MARKETS[i];
+      console.log(`\n📈 Market ${i + 1}/${MARKETS.length}: "${market.question}"`);
+      console.log(`   Market ID: ${toHex(market.id)}`);
 
-    let txid = await initializeMarket(
-      MARKET_1_ID,
-      QUESTION_1_TEXT,
-      1_000_000_000n // 1000 sBTC reward
-    );
-    await waitForTx(txid);
-    console.log("   ✅ Market initialized in oracle-adapter");
+      // Step 1: Initialize market on-chain
+      let txid = await initializeMarket(
+        market.id,
+        market.question,
+        market.reward
+      );
+      await waitForTx(txid);
+      console.log("   ✅ Market initialized in oracle-adapter");
 
-    // Step 2: Get the actual condition ID from the contract
-    console.log("\n🔍 Step 2: Reading condition ID from contract");
-    const conditionId = await getConditionId(MARKET_1_ID);
-    console.log(`   ✅ Condition ID: ${conditionId}`);
+      // Step 2: Get the condition ID from contract
+      const conditionId = await getConditionId(market.id);
+      conditionIds.push(conditionId);
+      console.log(`   ✅ Condition ID: ${conditionId}`);
 
-    // Step 3: Initialize market in backend server
-    console.log("\n🖥️  Step 3: Initializing market in backend server");
-    const SERVER_URL = process.env.SERVER_URL || "http://localhost:3000";
-    const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
+      // Step 3: Initialize market in backend server
+      if (ADMIN_API_KEY) {
+        try {
+          const response = await fetch(`${SERVER_URL}/api/markets`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-API-Key": ADMIN_API_KEY,
+            },
+            body: JSON.stringify({
+              question: market.question,
+              creator: DEPLOYER,
+              conditionId: conditionId,
+            }),
+          });
 
-    if (ADMIN_API_KEY) {
-      try {
-        const response = await fetch(`${SERVER_URL}/api/markets`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": ADMIN_API_KEY,
-          },
-          body: JSON.stringify({
-            question: QUESTION_1_TEXT,
-            creator: DEPLOYER,
-            conditionId: conditionId,
-          }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          console.log("   ✅ Market created in backend server");
-          console.log(`   Market data:`, data);
-        } else {
-          const errorText = await response.text();
-          console.log(
-            `   ⚠️  Could not create market in backend: ${response.status} ${errorText}`
-          );
+          if (response.ok) {
+            console.log("   ✅ Market created in backend server");
+          } else {
+            const errorText = await response.text();
+            console.log(
+              `   ⚠️  Could not create market in backend: ${response.status} ${errorText}`
+            );
+          }
+        } catch (error: any) {
+          if (i === 0) {
+            console.log(
+              `   ⚠️  Backend server not running: ${error.message}`
+            );
+          }
         }
-      } catch (error: any) {
-        console.log(
-          `   ⚠️  Backend server not running: ${error.message}`
-        );
+      } else if (i === 0) {
+        console.log("   ⚠️  ADMIN_API_KEY not set, skipping backend initialization");
       }
-    } else {
-      console.log("   ⚠️  ADMIN_API_KEY not set, skipping backend initialization");
     }
 
     console.log("\n✅ Devnet initialization complete!\n");
     console.log("📝 What was set up:");
-    console.log("   • 1 prediction market: ETH price");
-    console.log("   • Market registered in oracle and oracle-adapter");
-    console.log(`   • Condition ID: ${conditionId}`);
+    console.log(`   • ${MARKETS.length} prediction markets created`);
+    console.log("   • All markets registered in oracle and oracle-adapter");
     console.log("   • Ready for users to split positions and trade\n");
 
     console.log("🌐 Next steps:");
-    console.log(`   1. Split positions using condition ID: ${conditionId}`);
+    console.log("   1. Split positions using condition IDs from above");
     console.log("   2. Start backend:  cd ../server && bun dev");
     console.log("   3. Start frontend: cd ../web && bun dev");
     console.log("   4. Open browser:   http://localhost:5173");
     console.log("   5. Connect wallet and trade!\n");
 
-    console.log("📋 Split position command example:");
-    console.log(`   clarinet console --exec "(contract-call? .conditional-tokens split-position u100000000 ${conditionId})"`);
+    console.log("📋 Split position command example (first market):");
+    console.log(`   clarinet console --exec "(contract-call? .conditional-tokens split-position u100000000 ${conditionIds[0]})"`);
     console.log("");
   } catch (error: any) {
     console.error("\n❌ Error:", error.message || error);

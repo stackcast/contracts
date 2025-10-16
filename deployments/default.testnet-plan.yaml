@@ -1,0 +1,73 @@
+---
+id: 0
+name: Testnet deployment
+network: testnet
+stacks-node: "https://api.testnet.hiro.so"
+bitcoin-node: "http://blockstack:blockstacksystem@bitcoind.testnet.stacks.co:18332"
+plan:
+  batches:
+    - id: 0
+      transactions:
+        - requirement-publish:
+            contract-id: SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-registry
+            remap-sender: ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT
+            remap-principals:
+              SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4: ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT
+            cost: 112090
+            path: "./.cache/requirements/SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-registry.clar"
+            clarity-version: 3
+        - requirement-publish:
+            contract-id: SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+            remap-sender: ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT
+            remap-principals:
+              SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4: ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT
+            cost: 47590
+            path: "./.cache/requirements/SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token.clar"
+            clarity-version: 3
+        - requirement-publish:
+            contract-id: SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-deposit
+            remap-sender: ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT
+            remap-principals:
+              SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4: ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT
+            cost: 41510
+            path: "./.cache/requirements/SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-deposit.clar"
+            clarity-version: 3
+      epoch: "3.0"
+    - id: 1
+      transactions:
+        - contract-publish:
+            contract-name: conditional-tokens
+            expected-sender: ST3MFDEP2CKXVHYHW0TSAAD430R95YTVBW7QHZN9F
+            cost: 21119838
+            path: contracts/conditional-tokens.clar
+            anchor-block-only: true
+            clarity-version: 3
+        - contract-publish:
+            contract-name: ctf-exchange
+            expected-sender: ST3MFDEP2CKXVHYHW0TSAAD430R95YTVBW7QHZN9F
+            cost: 21048156
+            path: contracts/ctf-exchange.clar
+            anchor-block-only: true
+            clarity-version: 3
+        - contract-publish:
+            contract-name: optimistic-oracle
+            expected-sender: ST3MFDEP2CKXVHYHW0TSAAD430R95YTVBW7QHZN9F
+            cost: 21153792
+            path: contracts/optimistic-oracle.clar
+            anchor-block-only: true
+            clarity-version: 3
+        - contract-publish:
+            contract-name: oracle-adapter
+            expected-sender: ST3MFDEP2CKXVHYHW0TSAAD430R95YTVBW7QHZN9F
+            cost: 20987792
+            path: contracts/oracle-adapter.clar
+            anchor-block-only: true
+            clarity-version: 3
+        - contract-publish:
+            contract-name: sip-010-trait
+            expected-sender: ST3MFDEP2CKXVHYHW0TSAAD430R95YTVBW7QHZN9F
+            cost: 20889700
+            path: contracts/sip-010-trait.clar
+            anchor-block-only: true
+            clarity-version: 3
+      epoch: "3.2"

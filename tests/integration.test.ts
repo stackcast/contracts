@@ -504,21 +504,6 @@ describe("Integration Tests: Full Market Flow", () => {
 
       console.log("✓ Both wallets split positions");
 
-      // Approve exchange
-      simnet.callPublicFn(
-        "conditional-tokens",
-        "set-approval-for-all",
-        [Cl.principal(`${deployer}.ctf-exchange`), Cl.bool(true)],
-        wallet1
-      );
-
-      simnet.callPublicFn(
-        "conditional-tokens",
-        "set-approval-for-all",
-        [Cl.principal(`${deployer}.ctf-exchange`), Cl.bool(true)],
-        wallet2
-      );
-
       // Create order hash
       const makerAmount = 1000;
       const takerAmount = 550;
@@ -530,7 +515,6 @@ describe("Integration Tests: Full Market Flow", () => {
         "hash-order",
         [
           Cl.principal(wallet1),
-          Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
           Cl.buffer(noPositionId),
           Cl.uint(makerAmount),

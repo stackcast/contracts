@@ -12,6 +12,9 @@
 (define-constant ERR-TRANSFER-FAILED (err u106))
 (define-constant ERR-INVALID-AMOUNT (err u107))
 
+;; Trusted exchange contract (same deployer namespace)
+(define-constant EXCHANGE_CONTRACT .ctf-exchange)
+
 ;; Data structures
 
 ;; Condition: represents a prediction market
@@ -207,8 +210,9 @@
         (sender-balance (balance-of from position-id))
         (receiver-balance (balance-of to position-id))
         (is-approved (default-to false (get approved (map-get? approval-for-all { owner: from, operator: tx-sender }))))
+        (sender-is-exchange (is-eq tx-sender EXCHANGE_CONTRACT))
       )
-      (asserts! (or (is-eq tx-sender from) is-approved) ERR-NOT-AUTHORIZED)
+      (asserts! (or (is-eq tx-sender from) is-approved sender-is-exchange) ERR-NOT-AUTHORIZED)
       (asserts! (>= sender-balance amount) ERR-INSUFFICIENT-BALANCE)
 
       ;; Update balances

@@ -85,20 +85,7 @@ describe("CTF Exchange", () => {
       wallet2
     );
 
-    // Both wallets approve the exchange to transfer their tokens
-    simnet.callPublicFn(
-      "conditional-tokens",
-      "set-approval-for-all",
-      [Cl.principal(`${deployer}.ctf-exchange`), Cl.bool(true)],
-      wallet1
-    );
-
-    simnet.callPublicFn(
-      "conditional-tokens",
-      "set-approval-for-all",
-      [Cl.principal(`${deployer}.ctf-exchange`), Cl.bool(true)],
-      wallet2
-    );
+    // No approval step required: exchange contract is trusted caller
   });
 
   describe("hash-order", () => {
@@ -108,7 +95,6 @@ describe("CTF Exchange", () => {
         "hash-order",
         [
           Cl.principal(wallet1),
-          Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
           Cl.buffer(noPositionId),
           Cl.uint(1000),
@@ -124,7 +110,6 @@ describe("CTF Exchange", () => {
         "hash-order",
         [
           Cl.principal(wallet1),
-          Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
           Cl.buffer(noPositionId),
           Cl.uint(1000),
@@ -145,7 +130,6 @@ describe("CTF Exchange", () => {
         "hash-order",
         [
           Cl.principal(wallet1),
-          Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
           Cl.buffer(noPositionId),
           Cl.uint(1000),
@@ -161,7 +145,6 @@ describe("CTF Exchange", () => {
         "hash-order",
         [
           Cl.principal(wallet1),
-          Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
           Cl.buffer(noPositionId),
           Cl.uint(1000),
@@ -197,7 +180,6 @@ describe("CTF Exchange", () => {
           Cl.principal(wallet2),
           Cl.buffer(noPositionId),
           Cl.uint(takerAmount),
-          Cl.buffer(invalidSignature),
           Cl.uint(salt),
           Cl.uint(expiration),
           Cl.uint(makerAmount),
@@ -228,7 +210,6 @@ describe("CTF Exchange", () => {
           Cl.principal(wallet2),
           Cl.buffer(noPositionId),
           Cl.uint(takerAmount),
-          Cl.buffer(invalidSignature),
           Cl.uint(salt),
           Cl.uint(expiration),
           Cl.uint(makerAmount),
@@ -263,7 +244,6 @@ describe("CTF Exchange", () => {
           Cl.principal(wallet2),
           Cl.buffer(noPositionId),
           Cl.uint(takerAmount),
-          Cl.buffer(mockSignature),
           Cl.uint(salt),
           Cl.uint(expiration),
           Cl.uint(makerAmount),
@@ -307,7 +287,6 @@ describe("CTF Exchange", () => {
           Cl.principal(wallet2),
           Cl.buffer(noPositionId),
           Cl.uint(takerAmount),
-          Cl.buffer(mockSignature),
           Cl.uint(salt),
           Cl.uint(expiration),
           Cl.uint(makerAmount),
@@ -339,7 +318,6 @@ describe("CTF Exchange", () => {
           Cl.principal(wallet2),
           Cl.buffer(noPositionId),
           Cl.uint(takerAmount),
-          Cl.buffer(mockSignature),
           Cl.uint(salt),
           Cl.uint(expiration),
           Cl.uint(makerAmount),
@@ -369,7 +347,6 @@ describe("CTF Exchange", () => {
           Cl.principal(wallet2),
           Cl.buffer(noPositionId),
           Cl.uint(takerAmount),
-          Cl.buffer(mockSignature),
           Cl.uint(salt),
           Cl.uint(expiration),
           Cl.uint(fillAmount),
@@ -399,7 +376,6 @@ describe("CTF Exchange", () => {
           Cl.principal(wallet2),
           Cl.buffer(noPositionId),
           Cl.uint(takerAmount),
-          Cl.buffer(mockSignature),
           Cl.uint(salt),
           Cl.uint(expiration),
           Cl.uint(makerAmount),
@@ -428,7 +404,6 @@ describe("CTF Exchange", () => {
           Cl.principal(wallet2),
           Cl.buffer(noPositionId),
           Cl.uint(takerAmount),
-          Cl.buffer(mockSignature),
           Cl.uint(salt),
           Cl.uint(expiration),
           Cl.uint(1),
@@ -452,7 +427,6 @@ describe("CTF Exchange", () => {
         "cancel-order",
         [
           Cl.principal(wallet1),
-          Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
           Cl.buffer(noPositionId),
           Cl.uint(makerAmount),
@@ -477,7 +451,6 @@ describe("CTF Exchange", () => {
         "cancel-order",
         [
           Cl.principal(wallet1),
-          Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
           Cl.buffer(noPositionId),
           Cl.uint(makerAmount),
@@ -503,7 +476,6 @@ describe("CTF Exchange", () => {
         "cancel-order",
         [
           Cl.principal(wallet1),
-          Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
           Cl.buffer(noPositionId),
           Cl.uint(makerAmount),
@@ -527,7 +499,6 @@ describe("CTF Exchange", () => {
           Cl.principal(wallet2),
           Cl.buffer(noPositionId),
           Cl.uint(takerAmount),
-          Cl.buffer(mockSignature),
           Cl.uint(salt),
           Cl.uint(expiration),
           Cl.uint(makerAmount),
@@ -550,7 +521,6 @@ describe("CTF Exchange", () => {
         "cancel-order",
         [
           Cl.principal(wallet1),
-          Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
           Cl.buffer(noPositionId),
           Cl.uint(makerAmount),
@@ -567,7 +537,6 @@ describe("CTF Exchange", () => {
         "cancel-order",
         [
           Cl.principal(wallet1),
-          Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
           Cl.buffer(noPositionId),
           Cl.uint(makerAmount),
@@ -622,7 +591,6 @@ describe("CTF Exchange", () => {
         "hash-order",
         [
           Cl.principal(wallet1),
-          Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
           Cl.buffer(noPositionId),
           Cl.uint(1000),
@@ -649,7 +617,6 @@ describe("CTF Exchange", () => {
         "hash-order",
         [
           Cl.principal(wallet1),
-          Cl.principal(wallet2),
           Cl.buffer(yesPositionId),
           Cl.buffer(noPositionId),
           Cl.uint(1000),
@@ -724,7 +691,6 @@ describe("CTF Exchange", () => {
           Cl.principal(wallet2),
           Cl.buffer(noPositionId),
           Cl.uint(550),
-          Cl.buffer(mockSignature),
           Cl.uint(12345),
           Cl.uint(999999),
           Cl.uint(1000),

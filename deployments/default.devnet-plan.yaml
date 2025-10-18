@@ -38,14 +38,14 @@ plan:
         - contract-publish:
             contract-name: conditional-tokens
             expected-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            cost: 134980
+            cost: 136880
             path: contracts/conditional-tokens.clar
             anchor-block-only: true
             clarity-version: 3
         - contract-publish:
             contract-name: ctf-exchange
             expected-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            cost: 95970
+            cost: 167960
             path: contracts/ctf-exchange.clar
             anchor-block-only: true
             clarity-version: 3

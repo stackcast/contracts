@@ -111,7 +111,7 @@ if (!envArg) {
 const network = selectedEnv === "prod" ? STACKS_TESTNET : STACKS_DEVNET;
 const DEPLOYER =
   selectedEnv === "prod"
-    ? "ST3MFDEP2CKXVHYHW0TSAAD430R95YTVBW7QHZN9F"
+    ? "ST3HMQ68ACMREX3BYFPGN4RY2XHHMEVNF9PM3H7D7"
     : "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM";
 const TX_WAIT_TIME = selectedEnv === "prod" ? 30000 : 5000; // 30s for testnet, 5s for devnet
 
@@ -278,7 +278,11 @@ async function main() {
   const marketsToInit =
     deploymentChoice === "hackathon" ? [HACKATHON_MARKET] : MARKETS;
 
-  console.log(`📊 Initializing ${marketsToInit.length} prediction market${marketsToInit.length > 1 ? "s" : ""}...\n`);
+  console.log(
+    `📊 Initializing ${marketsToInit.length} prediction market${
+      marketsToInit.length > 1 ? "s" : ""
+    }...\n`
+  );
 
   const SERVER_URL =
     process.env.SERVER_URL ||
@@ -350,13 +354,19 @@ async function main() {
 
     console.log("\n✅ Initialization complete!\n");
     console.log("📝 What was set up:");
-    console.log(`   • ${marketsToInit.length} prediction market${marketsToInit.length > 1 ? "s" : ""} created`);
+    console.log(
+      `   • ${marketsToInit.length} prediction market${
+        marketsToInit.length > 1 ? "s" : ""
+      } created`
+    );
     console.log("   • All markets registered in oracle and oracle-adapter");
     console.log("   • Ready for users to split positions and trade\n");
 
     if (deploymentChoice === "hackathon") {
       console.log("🎉 Hackathon market deployed!");
-      console.log('   Question: "Will StackCast win the Stacks Vibe Coding Hackathon? 🚀"');
+      console.log(
+        '   Question: "Will StackCast win the Stacks Vibe Coding Hackathon? 🚀"'
+      );
       console.log("   Reward: 1000 sBTC (for the memes)\n");
     }
 

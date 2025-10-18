@@ -45,7 +45,7 @@ plan:
         - contract-publish:
             contract-name: ctf-exchange
             expected-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            cost: 167960
+            cost: 204940
             path: contracts/ctf-exchange.clar
             anchor-block-only: true
             clarity-version: 3

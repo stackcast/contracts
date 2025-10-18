@@ -18,6 +18,7 @@
 (define-constant ERR-INVALID-AMOUNTS (err u407))
 (define-constant ERR-PAUSED (err u408))
 (define-constant ERR-SBTC-TRANSFER-FAILED (err u409))
+(define-constant ERR-INSUFFICIENT-COLLATERAL (err u410))
 
 ;; Constants
 (define-constant CONTRACT_OWNER tx-sender)
@@ -26,6 +27,7 @@
 
 ;; Contract references
 (define-constant CTF_CONTRACT .conditional-tokens)
+(define-constant SBTC_TOKEN 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token)
 
 ;; Data structures
 
@@ -40,6 +42,12 @@
 (define-map cancelled-orders
   { order-hash: (buff 32) }
   { cancelled: bool }
+)
+
+;; Collateral balances (escrowed sBTC ready for mint settlements)
+(define-map collateral-balances
+  { owner: principal }
+  { balance: uint }
 )
 
 ;; Fee receiver
@@ -84,6 +92,77 @@
 ;; Helper: Calculate fee
 (define-private (calculate-fee (amount uint))
   (/ (* amount FEE_BPS) FEE_DENOMINATOR)
+)
+
+;; Collateral helpers --------------------------------------------------------
+
+(define-private (get-collateral (owner principal))
+  (default-to u0 (get balance (map-get? collateral-balances { owner: owner })))
+)
+
+(define-private (set-collateral (owner principal) (amount uint))
+  (if (> amount u0)
+    (map-set collateral-balances { owner: owner } { balance: amount })
+    (map-delete collateral-balances { owner: owner })
+  )
+)
+
+(define-private (credit-collateral (owner principal) (amount uint))
+  (set-collateral owner (+ (get-collateral owner) amount))
+)
+
+(define-private (deduct-collateral (owner principal) (amount uint))
+  (let ((current (get-collateral owner)))
+    (asserts! (>= current amount) ERR-INSUFFICIENT-COLLATERAL)
+    (set-collateral owner (- current amount))
+    (ok true)
+  )
+)
+
+(define-public (deposit-collateral (amount uint))
+  (begin
+    (asserts! (> amount u0) ERR-INVALID-AMOUNTS)
+    (unwrap! (contract-call? SBTC_TOKEN transfer
+      amount
+      tx-sender
+      (as-contract tx-sender)
+      none
+    ) ERR-SBTC-TRANSFER-FAILED)
+    (credit-collateral tx-sender amount)
+    (print {
+      event: "collateral-deposit",
+      user: tx-sender,
+      amount: amount,
+      new-balance: (get-collateral tx-sender)
+    })
+    (ok true)
+  )
+)
+
+(define-public (withdraw-collateral (amount uint))
+  (let ((caller tx-sender))
+    (begin
+      (asserts! (> amount u0) ERR-INVALID-AMOUNTS)
+      (unwrap! (deduct-collateral caller amount) ERR-INSUFFICIENT-COLLATERAL)
+      (unwrap! (as-contract (contract-call? SBTC_TOKEN transfer
+        amount
+        tx-sender
+        caller
+        none
+      )) ERR-SBTC-TRANSFER-FAILED)
+      (print {
+        event: "collateral-withdraw",
+        user: caller,
+        amount: amount,
+        remaining: (get-collateral caller)
+      })
+      (ok true)
+    )
+  )
+)
+
+(define-read-only (get-collateral-balance (owner principal))
+  (ok (get-collateral owner))
 )
 
 ;; Helper: Verify order signature using ECDSA secp256k1
@@ -224,35 +303,137 @@
 )
 
 ;; Fill order via MINT mode (both buyers)
-;; Used when BUY YES + BUY NO orders match at complementary prices
-;; Example: Alice BUY YES @ 0.60, Bob BUY NO @ 0.40
-;;
-;; ARCHITECTURE: Users already have YES+NO tokens from calling split-position themselves
-;; This mode executes as a NORMAL token swap between the two buyers
-;; We keep this function for API compatibility but it routes to fill-order
+;; Buyers pre-deposit sBTC collateral which is used to mint YES/NO tokens on-demand.
 (define-public (fill-order-mint
-  ;; Buyer 1 (e.g., wants YES)
+  ;; Buyer 1 (resting order)
   (buyer-1 principal)
-  (buyer-1-position-id (buff 32))
+  (buyer-1-maker-position-id (buff 32))
+  (buyer-1-taker-position-id (buff 32))
   (buyer-1-amount uint)
   (buyer-1-payment uint)
+  (buyer-1-salt uint)
+  (buyer-1-expiration uint)
   (buyer-1-signature (buff 65))
-  ;; Buyer 2 (e.g., wants NO)
+  ;; Buyer 2 (taker order)
   (buyer-2 principal)
-  (buyer-2-position-id (buff 32))
+  (buyer-2-maker-position-id (buff 32))
+  (buyer-2-taker-position-id (buff 32))
   (buyer-2-amount uint)
   (buyer-2-payment uint)
+  (buyer-2-salt uint)
+  (buyer-2-expiration uint)
   (buyer-2-signature (buff 65))
   ;; Shared params
   (condition-id (buff 32))
-  (salt uint)
-  (expiration uint)
   (fill-amount uint)
 )
-  ;; MINT-type trades are handled as token swaps via fill-order
-  ;; This is because users must split their sBTC into YES+NO tokens BEFORE trading
-  ;; The sBTC protocol-transfer function is only available to authorized protocol contracts
-  (err ERR-NOT-AUTHORIZED)
+  (begin
+    ;; Validate principals and buffers
+    (asserts! (is-standard buyer-1) ERR-NOT-AUTHORIZED)
+    (asserts! (is-standard buyer-2) ERR-NOT-AUTHORIZED)
+    (asserts! (is-eq (len buyer-1-maker-position-id) u32) ERR-INVALID-ORDER)
+    (asserts! (is-eq (len buyer-1-taker-position-id) u32) ERR-INVALID-ORDER)
+    (asserts! (is-eq (len buyer-2-maker-position-id) u32) ERR-INVALID-ORDER)
+    (asserts! (is-eq (len buyer-2-taker-position-id) u32) ERR-INVALID-ORDER)
+    (asserts! (is-eq (len buyer-1-signature) u65) ERR-INVALID-SIGNATURE)
+    (asserts! (is-eq (len buyer-2-signature) u65) ERR-INVALID-SIGNATURE)
+    (asserts! (> buyer-1-amount u0) ERR-INVALID-AMOUNTS)
+    (asserts! (> buyer-2-amount u0) ERR-INVALID-AMOUNTS)
+    (asserts! (> buyer-1-payment u0) ERR-INVALID-AMOUNTS)
+    (asserts! (> buyer-2-payment u0) ERR-INVALID-AMOUNTS)
+    (asserts! (> fill-amount u0) ERR-INVALID-AMOUNTS)
+    (asserts! (<= fill-amount buyer-1-amount) ERR-INVALID-AMOUNTS)
+    (asserts! (<= fill-amount buyer-2-amount) ERR-INVALID-AMOUNTS)
+    (asserts! (is-eq (len condition-id) u32) ERR-INVALID-ORDER)
+    (asserts! (> buyer-1-expiration burn-block-height) ERR-ORDER-EXPIRED)
+    (asserts! (> buyer-2-expiration burn-block-height) ERR-ORDER-EXPIRED)
+    (asserts! (not (var-get is-paused)) ERR-PAUSED)
+
+    (let
+      (
+        (order-1-hash (hash-order
+          buyer-1
+          buyer-1-maker-position-id
+          buyer-1-taker-position-id
+          buyer-1-amount
+          buyer-1-payment
+          buyer-1-salt
+          buyer-1-expiration
+        ))
+        (order-2-hash (hash-order
+          buyer-2
+          buyer-2-maker-position-id
+          buyer-2-taker-position-id
+          buyer-2-amount
+          buyer-2-payment
+          buyer-2-salt
+          buyer-2-expiration
+        ))
+        (total-payment (+ buyer-1-payment buyer-2-payment))
+        (fee (calculate-fee fill-amount))
+        (required (+ fill-amount fee))
+      )
+      ;; Verify signatures
+      (asserts! (verify-signature order-1-hash buyer-1-signature buyer-1) ERR-INVALID-SIGNATURE)
+      (asserts! (verify-signature order-2-hash buyer-2-signature buyer-2) ERR-INVALID-SIGNATURE)
+      ;; Ensure collateral covers mint + fee exactly
+      (asserts! (>= total-payment required) ERR-INVALID-AMOUNTS)
+
+      ;; Deduct collateral from both buyers (reverts if insufficient)
+      (unwrap! (deduct-collateral buyer-1 buyer-1-payment) ERR-INSUFFICIENT-COLLATERAL)
+      (unwrap! (deduct-collateral buyer-2 buyer-2-payment) ERR-INSUFFICIENT-COLLATERAL)
+
+      ;; Mint outcome tokens using collateral held by the contract
+      (unwrap! (as-contract (contract-call? CTF_CONTRACT split-position
+        fill-amount
+        condition-id
+      )) ERR-INSUFFICIENT-BALANCE)
+
+      ;; Transfer minted tokens to buyers
+      (unwrap! (as-contract (contract-call? CTF_CONTRACT safe-transfer-from
+        (as-contract tx-sender)
+        buyer-1
+        buyer-1-taker-position-id
+        fill-amount
+      )) ERR-INSUFFICIENT-BALANCE)
+
+      (unwrap! (as-contract (contract-call? CTF_CONTRACT safe-transfer-from
+        (as-contract tx-sender)
+        buyer-2
+        buyer-2-taker-position-id
+        fill-amount
+      )) ERR-INSUFFICIENT-BALANCE)
+
+      ;; Pay protocol fee out of remaining collateral (if any difference, credit back to buyer-1)
+      (let ((overage (- total-payment required)))
+        (if (> fee u0)
+          (unwrap! (as-contract (contract-call? SBTC_TOKEN transfer
+            fee
+            tx-sender
+            (var-get fee-receiver)
+            none
+          )) ERR-SBTC-TRANSFER-FAILED)
+          true
+        )
+        (if (> overage u0)
+          (credit-collateral buyer-1 overage)
+          true
+        )
+      )
+
+      (print {
+        event: "order-filled-mint",
+        buyer-1: buyer-1,
+        buyer-2: buyer-2,
+        condition-id: condition-id,
+        fill-amount: fill-amount,
+        buyer-1-payment: buyer-1-payment,
+        buyer-2-payment: buyer-2-payment,
+        fee: fee
+      })
+      (ok true)
+    )
+  )
 )
 
 ;; Fill order via MERGE mode (both sellers)

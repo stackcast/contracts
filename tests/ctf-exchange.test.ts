@@ -6,6 +6,7 @@ const accounts = simnet.getAccounts();
 const deployer = accounts.get("deployer")!;
 const wallet1 = accounts.get("wallet_1")!;
 const wallet2 = accounts.get("wallet_2")!;
+const wallet3 = accounts.get("wallet_3")!;
 
 describe("CTF Exchange", () => {
   let marketId: Uint8Array;
@@ -412,6 +413,16 @@ describe("CTF Exchange", () => {
       );
 
       expect(result.result).toBeErr(Cl.uint(407)); // ERR-INVALID-AMOUNTS
+    });
+  });
+
+  describe.skip("collateral management", () => {
+    it("allows deposit and withdrawal of collateral", () => {
+      /* Disabled in simnet: requires live sBTC token contract */
+    });
+
+    it("prevents withdrawing more than available collateral", () => {
+      /* Disabled in simnet: requires live sBTC token contract */
     });
   });
 

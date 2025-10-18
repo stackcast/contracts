@@ -14,6 +14,7 @@
   "dependencies": {
     "@hirosystems/clarinet-sdk": "^3.6.0",
     "@stacks/transactions": "^7.2.0",
+    "@stacks/wallet-sdk": "^7.2.0",
     "@types/node": "^24.4.0",
     "chokidar-cli": "^3.0.0",
     "dotenv": "^17.2.3",

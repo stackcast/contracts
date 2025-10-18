@@ -37,35 +37,35 @@ plan:
       transactions:
         - contract-publish:
             contract-name: conditional-tokens
-            expected-sender: ST3HMQ68ACMREX3BYFPGN4RY2XHHMEVNF9PM3H7D7
+            expected-sender: ST36KDJXBFHS3FDTK9JVJZ2GM5MF2161M4ACZZJHN
             cost: 136880
             path: contracts/conditional-tokens.clar
             anchor-block-only: true
             clarity-version: 3
         - contract-publish:
             contract-name: ctf-exchange
-            expected-sender: ST3HMQ68ACMREX3BYFPGN4RY2XHHMEVNF9PM3H7D7
+            expected-sender: ST36KDJXBFHS3FDTK9JVJZ2GM5MF2161M4ACZZJHN
             cost: 147690
             path: contracts/ctf-exchange.clar
             anchor-block-only: true
             clarity-version: 3
         - contract-publish:
             contract-name: optimistic-oracle
-            expected-sender: ST3HMQ68ACMREX3BYFPGN4RY2XHHMEVNF9PM3H7D7
+            expected-sender: ST36KDJXBFHS3FDTK9JVJZ2GM5MF2161M4ACZZJHN
             cost: 152890
             path: contracts/optimistic-oracle.clar
             anchor-block-only: true
             clarity-version: 3
         - contract-publish:
             contract-name: oracle-adapter
-            expected-sender: ST3HMQ68ACMREX3BYFPGN4RY2XHHMEVNF9PM3H7D7
+            expected-sender: ST36KDJXBFHS3FDTK9JVJZ2GM5MF2161M4ACZZJHN
             cost: 61720
             path: contracts/oracle-adapter.clar
             anchor-block-only: true
             clarity-version: 3
         - contract-publish:
             contract-name: sip-010-trait
-            expected-sender: ST3HMQ68ACMREX3BYFPGN4RY2XHHMEVNF9PM3H7D7
+            expected-sender: ST36KDJXBFHS3FDTK9JVJZ2GM5MF2161M4ACZZJHN
             cost: 7540
             path: contracts/sip-010-trait.clar
             anchor-block-only: true
